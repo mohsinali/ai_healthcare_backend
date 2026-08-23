@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
@@ -15,6 +16,7 @@ async function bootstrap(): Promise<void> {
 
   app.useLogger(new Logger());
   app.use(helmet());
+  app.use(cookieParser());
   app.enableCors({
     origin: corsOrigins,
     credentials: true,
@@ -36,6 +38,7 @@ async function bootstrap(): Promise<void> {
       .setTitle('AI Healthcare Front Desk API')
       .setDescription('API documentation for the backend foundation')
       .setVersion('1.0')
+      .addBearerAuth()
       .build();
     SwaggerModule.setup('docs', app, () =>
       SwaggerModule.createDocument(app, swaggerConfig),

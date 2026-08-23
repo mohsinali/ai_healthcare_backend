@@ -6,6 +6,9 @@ describe('environment validation', () => {
     PORT: 3000,
     DATABASE_URL: 'postgresql://user:password@localhost:5432/app',
     CORS_ORIGIN: 'http://localhost:3001',
+    JWT_ACCESS_SECRET: 'access-secret-at-least-thirty-two-characters',
+    JWT_REFRESH_SECRET: 'refresh-secret-at-least-thirty-two-characters',
+    FRONTEND_URL: 'http://localhost:3001',
   };
 
   it('accepts a valid environment', () => {
@@ -33,6 +36,7 @@ describe('environment validation', () => {
       ...validEnvironment,
       NODE_ENV: 'production',
       CORS_ORIGIN: '*',
+      AUTH_COOKIE_SECURE: true,
     });
     expect(result.error?.message).toContain('CORS_ORIGIN');
   });
