@@ -26,8 +26,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "users:create-super-admin": "ts-node -r tsconfig-paths/register scripts/create-super-admin.ts"
-    ,"users:create": "ts-node -r tsconfig-paths/register scripts/create-user.ts"
+    "users:create-super-admin": "ts-node -r tsconfig-paths/register scripts/create-super-admin.ts",
+    "users:create": "ts-node -r tsconfig-paths/register scripts/create-user.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",
@@ -44,6 +44,7 @@
     "cookie-parser": "^1.4.7",
     "helmet": "^8.1.0",
     "joi": "^18.0.1",
+    "libphonenumber-js": "^1.13.11",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },

@@ -35,19 +35,34 @@ enum MembershipStatus {
   DISABLED
 }
 
+enum ConfigurationStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
 model User {
-  id             String               @id @default(uuid()) @db.Uuid
-  email          String               @unique
-  passwordHash   String
-  firstName      String
-  lastName       String
-  platformRole   PlatformRole?
-  status         UserStatus           @default(ACTIVE)
-  lastLoginAt    DateTime?
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-  authSessions   AuthSession[]
-  passwordResets PasswordResetToken[]
+  id                String               @id @default(uuid()) @db.Uuid
+  email             String               @unique
+  passwordHash      String
+  firstName         String
+  lastName          String
+  platformRole      PlatformRole?
+  status            UserStatus           @default(ACTIVE)
+  lastLoginAt       DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  authSessions      AuthSession[]
+  passwordResets    PasswordResetToken[]
   tenantMemberships TenantMembership[]
 }
 
@@ -59,9 +74,138 @@ model Tenant {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   memberships TenantMembership[]
+  locations   Location[]
+  providers   Provider[]
+  services    Service[]
 
   @@index([status])
   @@index([name])
+}
+
+model Location {
+  id                    String              @id @default(uuid()) @db.Uuid
+  tenantId              String              @db.Uuid
+  name                  String
+  normalizedName        String
+  status                ConfigurationStatus @default(ACTIVE)
+  phone                 String
+  email                 String?
+  timezone              String
+  addressLine1          String
+  addressLine2          String?
+  city                  String
+  stateProvince         String
+  postalCode            String
+  countryCode           String              @db.Char(2)
+  escalationPhoneNumber String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  businessHours         BusinessHour[]
+  providerLocations     ProviderLocation[]
+  locationServices      LocationService[]
+
+  @@unique([tenantId, normalizedName])
+  @@unique([tenantId, id])
+  @@index([tenantId, status])
+}
+
+model BusinessHour {
+  id         String    @id @default(uuid()) @db.Uuid
+  tenantId   String    @db.Uuid
+  locationId String    @db.Uuid
+  dayOfWeek  DayOfWeek
+  isClosed   Boolean
+  openTime   String?   @db.VarChar(5)
+  closeTime  String?   @db.VarChar(5)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  location   Location  @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([locationId, dayOfWeek])
+  @@index([tenantId, locationId])
+}
+
+model Provider {
+  id                String              @id @default(uuid()) @db.Uuid
+  tenantId          String              @db.Uuid
+  firstName         String
+  lastName          String
+  displayName       String?
+  title             String?
+  email             String?
+  phone             String?
+  status            ConfigurationStatus @default(ACTIVE)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  providerLocations ProviderLocation[]
+  providerServices  ProviderService[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status])
+  @@index([tenantId, lastName, firstName])
+}
+
+model Service {
+  id               String              @id @default(uuid()) @db.Uuid
+  tenantId         String              @db.Uuid
+  name             String
+  normalizedName   String
+  description      String?
+  durationMinutes  Int
+  status           ConfigurationStatus @default(ACTIVE)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  providerServices ProviderService[]
+  locationServices LocationService[]
+
+  @@unique([tenantId, normalizedName])
+  @@unique([tenantId, id])
+  @@index([tenantId, status])
+}
+
+model ProviderLocation {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @db.Uuid
+  providerId String   @db.Uuid
+  locationId String   @db.Uuid
+  createdAt  DateTime @default(now())
+  provider   Provider @relation(fields: [tenantId, providerId], references: [tenantId, id], onDelete: Cascade)
+  location   Location @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([providerId, locationId])
+  @@index([tenantId, providerId])
+  @@index([tenantId, locationId])
+}
+
+model ProviderService {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @db.Uuid
+  providerId String   @db.Uuid
+  serviceId  String   @db.Uuid
+  createdAt  DateTime @default(now())
+  provider   Provider @relation(fields: [tenantId, providerId], references: [tenantId, id], onDelete: Cascade)
+  service    Service  @relation(fields: [tenantId, serviceId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([providerId, serviceId])
+  @@index([tenantId, providerId])
+  @@index([tenantId, serviceId])
+}
+
+model LocationService {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @db.Uuid
+  locationId String   @db.Uuid
+  serviceId  String   @db.Uuid
+  createdAt  DateTime @default(now())
+  location   Location @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: Cascade)
+  service    Service  @relation(fields: [tenantId, serviceId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([locationId, serviceId])
+  @@index([tenantId, locationId])
+  @@index([tenantId, serviceId])
 }
 
 model TenantMembership {

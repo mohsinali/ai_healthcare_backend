@@ -10,6 +10,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { TenantsModule } from './tenants/tenants.module';
+import { ClinicConfigModule } from './clinic-config/clinic-config.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { TenantsModule } from './tenants/tenants.module';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     AuthModule,
     TenantsModule,
+    ClinicConfigModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
