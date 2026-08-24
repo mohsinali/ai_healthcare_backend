@@ -39,6 +39,16 @@ async function bootstrap(): Promise<void> {
       .setDescription('API documentation for the backend foundation')
       .setVersion('1.0')
       .addBearerAuth()
+      .addApiKey(
+        {
+          type: 'apiKey',
+          in: 'header',
+          name: 'X-Tenant-Id',
+          description:
+            'Selects a requested tenant context. The server validates active membership and tenant status; this header does not authorize access.',
+        },
+        'tenant-context',
+      )
       .build();
     SwaggerModule.setup('docs', app, () =>
       SwaggerModule.createDocument(app, swaggerConfig),

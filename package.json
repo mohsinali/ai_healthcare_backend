@@ -27,6 +27,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "users:create-super-admin": "ts-node -r tsconfig-paths/register scripts/create-super-admin.ts"
+    ,"users:create": "ts-node -r tsconfig-paths/register scripts/create-user.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

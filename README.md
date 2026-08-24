@@ -1,5 +1,7 @@
 # AI Healthcare Backend
 
+See [../MULTI_TENANCY.md](../MULTI_TENANCY.md) for the shared-schema tenancy model, trusted context flow, operator setup, and isolation rules.
+
 Production-oriented NestJS foundation for the AI Healthcare Front Desk Voice Agent. It is an independently deployable modular monolith backed by PostgreSQL and Prisma. No healthcare domain functionality is included yet.
 
 ## Prerequisites

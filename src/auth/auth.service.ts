@@ -124,7 +124,20 @@ export class AuthService {
   async me(user: AuthenticatedUser) {
     return this.prisma.user.findUniqueOrThrow({
       where: { id: user.userId },
-      select: safeUserSelect,
+      select: {
+        ...safeUserSelect,
+        tenantMemberships: {
+          select: {
+            id: true,
+            role: true,
+            status: true,
+            tenant: {
+              select: { id: true, name: true, slug: true, status: true },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
     });
   }
   async forgotPassword(email: string): Promise<void> {

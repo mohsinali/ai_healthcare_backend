@@ -8,6 +8,8 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AccessTokenGuard } from './guards/access-token.guard';
 import { PlatformRolesGuard } from './guards/platform-roles.guard';
+import { TenantContextGuard } from '../tenants/guards/tenant-context.guard';
+import { TenantRolesGuard } from '../tenants/guards/tenant-roles.guard';
 @Module({
   imports: [DatabaseModule, JwtModule.register({}), UsersModule, MailModule],
   controllers: [AuthController],
@@ -15,6 +17,8 @@ import { PlatformRolesGuard } from './guards/platform-roles.guard';
     AuthService,
     { provide: APP_GUARD, useClass: AccessTokenGuard },
     { provide: APP_GUARD, useClass: PlatformRolesGuard },
+    { provide: APP_GUARD, useClass: TenantContextGuard },
+    { provide: APP_GUARD, useClass: TenantRolesGuard },
   ],
   exports: [AuthService],
 })

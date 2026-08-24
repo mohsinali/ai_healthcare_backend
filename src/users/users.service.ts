@@ -24,4 +24,20 @@ export class UsersService {
       select: safeUserSelect,
     });
   }
+  search(query: string) {
+    const value = query.trim();
+    return this.prisma.user.findMany({
+      where: {
+        platformRole: null,
+        OR: [
+          { email: { contains: value, mode: 'insensitive' } },
+          { firstName: { contains: value, mode: 'insensitive' } },
+          { lastName: { contains: value, mode: 'insensitive' } },
+        ],
+      },
+      select: safeUserSelect,
+      take: 20,
+      orderBy: [{ email: 'asc' }],
+    });
+  }
 }
