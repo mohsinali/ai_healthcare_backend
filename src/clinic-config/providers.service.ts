@@ -1,5 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { FieldValidationException } from '../common/validation/field-validation.exception';
 import { PrismaService } from '../database/prisma.service';
 import { TrustedTenantContext as TenantContext } from '../tenants/types/tenant-context';
 import {
@@ -208,8 +213,22 @@ export class ProvidersService {
     for (const key of ['displayName', 'title'] as const)
       if (dto[key] !== undefined) value[key] = optionalText(dto[key]);
     if (dto.email !== undefined) value.email = optionalEmail(dto.email);
-    if (dto.phone !== undefined) value.phone = phone(dto.phone);
+    if (dto.phone !== undefined) value.phone = this.providerPhone(dto.phone);
     if ('status' in dto && dto.status) value.status = dto.status;
     return value as Prisma.ProviderUncheckedCreateInput;
+  }
+  private providerPhone(value: string | null | undefined) {
+    try {
+      return phone(value);
+    } catch (error) {
+      if (error instanceof BadRequestException)
+        throw new FieldValidationException([
+          {
+            field: 'phone',
+            message: 'Enter a valid international phone number.',
+          },
+        ]);
+      throw error;
+    }
   }
 }
