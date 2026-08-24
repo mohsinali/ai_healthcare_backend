@@ -128,7 +128,6 @@ export class AuthService {
         ...safeUserSelect,
         tenantMemberships: {
           select: {
-            id: true,
             role: true,
             status: true,
             tenant: {

@@ -29,6 +29,12 @@ enum TenantRole {
   RECEPTIONIST
 }
 
+enum DateFormat {
+  MM_DD_YYYY
+  DD_MM_YYYY
+  YYYY_MM_DD
+}
+
 enum MembershipStatus {
   ACTIVE
   SUSPENDED
@@ -81,6 +87,8 @@ model Tenant {
   name        String
   slug        String             @unique
   status      TenantStatus       @default(ACTIVE)
+  dateFormat  DateFormat         @default(MM_DD_YYYY)
+  timezone    String             @default("UTC")
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   memberships TenantMembership[]
