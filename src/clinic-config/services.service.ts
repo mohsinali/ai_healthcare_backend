@@ -9,6 +9,7 @@ import { TrustedTenantContext as TenantContext } from '../tenants/types/tenant-c
 import {
   CreateServiceDto,
   ListConfigurationDto,
+  ReplaceAssignmentsDto,
   UpdateServiceDto,
 } from './dto/clinic-config.dto';
 import { normalizedName, optionalText } from './clinic-config.helpers';
@@ -88,6 +89,85 @@ export class ServicesService {
       this.unique(e);
       throw e;
     }
+  }
+  providers(ctx: TenantContext, id: string) {
+    return this.related(ctx, id, 'provider');
+  }
+  locations(ctx: TenantContext, id: string) {
+    return this.related(ctx, id, 'location');
+  }
+  replaceProviders(ctx: TenantContext, id: string, dto: ReplaceAssignmentsDto) {
+    return this.replace(ctx, id, dto, 'provider');
+  }
+  replaceLocations(ctx: TenantContext, id: string, dto: ReplaceAssignmentsDto) {
+    return this.replace(ctx, id, dto, 'location');
+  }
+  private async related(
+    ctx: TenantContext,
+    id: string,
+    type: 'provider' | 'location',
+  ) {
+    await this.get(ctx, id);
+    return type === 'provider'
+      ? this.prisma.provider.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            providerServices: { some: { serviceId: id } },
+          },
+          orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+        })
+      : this.prisma.location.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            locationServices: { some: { serviceId: id } },
+          },
+          orderBy: { name: 'asc' },
+        });
+  }
+  private async replace(
+    ctx: TenantContext,
+    id: string,
+    dto: ReplaceAssignmentsDto,
+    type: 'provider' | 'location',
+  ) {
+    await this.get(ctx, id);
+    const count =
+      type === 'provider'
+        ? await this.prisma.provider.count({
+            where: { tenantId: ctx.tenantId, id: { in: dto.ids } },
+          })
+        : await this.prisma.location.count({
+            where: { tenantId: ctx.tenantId, id: { in: dto.ids } },
+          });
+    if (count !== dto.ids.length)
+      throw new NotFoundException(`One or more ${type}s were not found.`);
+    if (type === 'provider')
+      await this.prisma.$transaction([
+        this.prisma.providerService.deleteMany({
+          where: { tenantId: ctx.tenantId, serviceId: id },
+        }),
+        this.prisma.providerService.createMany({
+          data: dto.ids.map((providerId) => ({
+            tenantId: ctx.tenantId,
+            serviceId: id,
+            providerId,
+          })),
+        }),
+      ]);
+    else
+      await this.prisma.$transaction([
+        this.prisma.locationService.deleteMany({
+          where: { tenantId: ctx.tenantId, serviceId: id },
+        }),
+        this.prisma.locationService.createMany({
+          data: dto.ids.map((locationId) => ({
+            tenantId: ctx.tenantId,
+            serviceId: id,
+            locationId,
+          })),
+        }),
+      ]);
+    return this.related(ctx, id, type);
   }
   private data(
     dto: CreateServiceDto | UpdateServiceDto,

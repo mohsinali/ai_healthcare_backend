@@ -190,4 +190,30 @@ export class ServicesController extends ClinicController {
   ) {
     return this.service.update(c, id, d);
   }
+  @Get(':id/providers') @TenantRoles(...READ) providers(
+    @CurrentTenant() c: TenantContext,
+    @Param('id') id: string,
+  ) {
+    return this.service.providers(c, id);
+  }
+  @Put(':id/providers') @TenantRoles(...WRITE) replaceProviders(
+    @CurrentTenant() c: TenantContext,
+    @Param('id') id: string,
+    @Body() d: ReplaceAssignmentsDto,
+  ) {
+    return this.service.replaceProviders(c, id, d);
+  }
+  @Get(':id/locations') @TenantRoles(...READ) locations(
+    @CurrentTenant() c: TenantContext,
+    @Param('id') id: string,
+  ) {
+    return this.service.locations(c, id);
+  }
+  @Put(':id/locations') @TenantRoles(...WRITE) replaceLocations(
+    @CurrentTenant() c: TenantContext,
+    @Param('id') id: string,
+    @Body() d: ReplaceAssignmentsDto,
+  ) {
+    return this.service.replaceLocations(c, id, d);
+  }
 }
