@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { DayOfWeek, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { FieldValidationException } from '../common/validation/field-validation.exception';
 import { TrustedTenantContext as TenantContext } from '../tenants/types/tenant-context';
 import {
   CreateLocationDto,
@@ -236,15 +237,36 @@ export class LocationsService {
       result.normalizedName = normalizedName(dto.name);
     if (dto.email !== undefined) result.email = optionalEmail(dto.email);
     if (dto.phone !== undefined || required)
-      result.phone = phone(dto.phone, required);
+      result.phone = this.locationPhone('phone', dto.phone, required);
     if (dto.escalationPhoneNumber !== undefined)
-      result.escalationPhoneNumber = phone(dto.escalationPhoneNumber);
+      result.escalationPhoneNumber = this.locationPhone(
+        'escalationPhoneNumber',
+        dto.escalationPhoneNumber,
+      );
     if (dto.timezone !== undefined)
       result.timezone = assertTimezone(dto.timezone);
     if (dto.countryCode !== undefined)
       result.countryCode = dto.countryCode.toUpperCase();
     if ('status' in dto && dto.status) result.status = dto.status;
     return result;
+  }
+  private locationPhone(
+    field: 'phone' | 'escalationPhoneNumber',
+    value: string | null | undefined,
+    required = false,
+  ) {
+    try {
+      return phone(value, required);
+    } catch (error) {
+      if (error instanceof BadRequestException)
+        throw new FieldValidationException([
+          {
+            field,
+            message: 'Enter a valid international phone number.',
+          },
+        ]);
+      throw error;
+    }
   }
   private withCounts<
     T extends {

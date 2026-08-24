@@ -1,4 +1,5 @@
 import { TenantRole } from '@prisma/client';
+import { FieldValidationException } from '../common/validation/field-validation.exception';
 import { LocationsService } from './locations.service';
 
 describe('LocationsService', () => {
@@ -99,4 +100,38 @@ describe('LocationsService', () => {
       }),
     );
   });
+
+  it.each([
+    ['phone', { phone: 'asdfasdf' }],
+    ['escalationPhoneNumber', { escalationPhoneNumber: '123xyz' }],
+  ])(
+    'returns invalid %s as a structured field error',
+    async (field, invalid) => {
+      const service = new LocationsService({} as never);
+      const promise = service.create(context, {
+        name: 'Clifton Branch',
+        phone: '+923343683084',
+        timezone: 'Asia/Karachi',
+        addressLine1: 'MC 1081 Green Town',
+        city: 'Karachi',
+        stateProvince: 'Sindh',
+        postalCode: '75230',
+        countryCode: 'PK',
+        ...invalid,
+      });
+
+      await expect(promise).rejects.toBeInstanceOf(FieldValidationException);
+      await expect(promise).rejects.toMatchObject({
+        response: {
+          message: 'Validation failed.',
+          errors: [
+            {
+              field,
+              message: 'Enter a valid international phone number.',
+            },
+          ],
+        },
+      });
+    },
+  );
 });
