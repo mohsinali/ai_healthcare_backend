@@ -8,6 +8,7 @@ import { PrismaService } from '../database/prisma.service';
 import { TrustedTenantContext as TenantContext } from '../tenants/types/tenant-context';
 import {
   CreateServiceDto,
+  EditServiceDto,
   ListConfigurationDto,
   ReplaceAssignmentsDto,
   UpdateServiceDto,
@@ -88,6 +89,51 @@ export class ServicesService {
     } catch (e) {
       this.unique(e);
       throw e;
+    }
+  }
+  async edit(ctx: TenantContext, id: string, dto: EditServiceDto) {
+    await this.get(ctx, id);
+    const [locations, providers] = await Promise.all([
+      this.prisma.location.count({
+        where: { tenantId: ctx.tenantId, id: { in: dto.locationIds } },
+      }),
+      this.prisma.provider.count({
+        where: { tenantId: ctx.tenantId, id: { in: dto.providerIds } },
+      }),
+    ]);
+    if (locations !== dto.locationIds.length)
+      throw new NotFoundException('One or more locations were not found.');
+    if (providers !== dto.providerIds.length)
+      throw new NotFoundException('One or more providers were not found.');
+    const { locationIds, providerIds, ...service } = dto;
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.service.update({ where: { id }, data: this.data(service) });
+        await tx.locationService.deleteMany({
+          where: { tenantId: ctx.tenantId, serviceId: id },
+        });
+        await tx.locationService.createMany({
+          data: locationIds.map((locationId) => ({
+            tenantId: ctx.tenantId,
+            serviceId: id,
+            locationId,
+          })),
+        });
+        await tx.providerService.deleteMany({
+          where: { tenantId: ctx.tenantId, serviceId: id },
+        });
+        await tx.providerService.createMany({
+          data: providerIds.map((providerId) => ({
+            tenantId: ctx.tenantId,
+            serviceId: id,
+            providerId,
+          })),
+        });
+      });
+      return this.get(ctx, id);
+    } catch (error) {
+      this.unique(error);
+      throw error;
     }
   }
   providers(ctx: TenantContext, id: string) {

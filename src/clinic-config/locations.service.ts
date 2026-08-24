@@ -10,6 +10,8 @@ import { FieldValidationException } from '../common/validation/field-validation.
 import { TrustedTenantContext as TenantContext } from '../tenants/types/tenant-context';
 import {
   CreateLocationDto,
+  BusinessHourDto,
+  EditLocationDto,
   ListConfigurationDto,
   ReplaceAssignmentsDto,
   UpdateBusinessHoursDto,
@@ -132,6 +134,52 @@ export class LocationsService {
       throw error;
     }
   }
+  async edit(ctx: TenantContext, id: string, dto: EditLocationDto) {
+    await this.get(ctx, id);
+    this.validateHours(dto.businessHours);
+    const found = await this.prisma.service.count({
+      where: { tenantId: ctx.tenantId, id: { in: dto.serviceIds } },
+    });
+    if (found !== dto.serviceIds.length)
+      throw new NotFoundException('One or more services were not found.');
+    const { businessHours, serviceIds, ...location } = dto;
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.location.update({
+          where: { id },
+          data: this.data(location, false),
+        });
+        for (const hour of businessHours)
+          await tx.businessHour.update({
+            where: {
+              locationId_dayOfWeek: {
+                locationId: id,
+                dayOfWeek: hour.dayOfWeek,
+              },
+            },
+            data: {
+              isClosed: hour.isClosed,
+              openTime: hour.isClosed ? null : hour.openTime,
+              closeTime: hour.isClosed ? null : hour.closeTime,
+            },
+          });
+        await tx.locationService.deleteMany({
+          where: { tenantId: ctx.tenantId, locationId: id },
+        });
+        await tx.locationService.createMany({
+          data: serviceIds.map((serviceId) => ({
+            tenantId: ctx.tenantId,
+            locationId: id,
+            serviceId,
+          })),
+        });
+      });
+      return this.get(ctx, id);
+    } catch (error) {
+      this.unique(error);
+      throw error;
+    }
+  }
   async businessHours(ctx: TenantContext, id: string) {
     await this.get(ctx, id);
     return this.prisma.businessHour.findMany({
@@ -145,27 +193,7 @@ export class LocationsService {
     dto: UpdateBusinessHoursDto,
   ) {
     await this.get(ctx, id);
-    if (
-      dto.hours.length !== 7 ||
-      days.some((day) => !dto.hours.some((hour) => hour.dayOfWeek === day))
-    )
-      throw new BadRequestException(
-        'Business hours must contain each weekday exactly once.',
-      );
-    dto.hours.forEach((hour) => {
-      if (hour.isClosed && (hour.openTime || hour.closeTime))
-        throw new BadRequestException(
-          `${hour.dayOfWeek}: closed days cannot include times.`,
-        );
-      if (!hour.isClosed && (!hour.openTime || !hour.closeTime))
-        throw new BadRequestException(
-          `${hour.dayOfWeek}: open and close times are required.`,
-        );
-      if (!hour.isClosed && hour.openTime! >= hour.closeTime!)
-        throw new BadRequestException(
-          `${hour.dayOfWeek}: opening time must be before closing time.`,
-        );
-    });
+    this.validateHours(dto.hours);
     await this.prisma.$transaction(
       dto.hours.map((hour) =>
         this.prisma.businessHour.update({
@@ -181,6 +209,29 @@ export class LocationsService {
       ),
     );
     return this.businessHours(ctx, id);
+  }
+  private validateHours(hours: BusinessHourDto[]) {
+    if (
+      hours.length !== 7 ||
+      days.some((day) => !hours.some((hour) => hour.dayOfWeek === day))
+    )
+      throw new BadRequestException(
+        'Business hours must contain each weekday exactly once.',
+      );
+    hours.forEach((hour) => {
+      if (hour.isClosed && (hour.openTime || hour.closeTime))
+        throw new BadRequestException(
+          `${hour.dayOfWeek}: closed days cannot include times.`,
+        );
+      if (!hour.isClosed && (!hour.openTime || !hour.closeTime))
+        throw new BadRequestException(
+          `${hour.dayOfWeek}: open and close times are required.`,
+        );
+      if (!hour.isClosed && hour.openTime! >= hour.closeTime!)
+        throw new BadRequestException(
+          `${hour.dayOfWeek}: opening time must be before closing time.`,
+        );
+    });
   }
   async services(ctx: TenantContext, id: string) {
     await this.get(ctx, id);

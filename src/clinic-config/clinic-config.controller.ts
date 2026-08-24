@@ -18,6 +18,9 @@ import {
   CreateLocationDto,
   CreateProviderDto,
   CreateServiceDto,
+  EditLocationDto,
+  EditProviderDto,
+  EditServiceDto,
   ListConfigurationDto,
   ReplaceAssignmentsDto,
   UpdateBusinessHoursDto,
@@ -73,6 +76,13 @@ export class LocationsController extends ClinicController {
     @Body() d: UpdateLocationDto,
   ) {
     return this.service.update(c, id, d);
+  }
+  @Put(':id/edit') @TenantRoles(...WRITE) edit(
+    @CurrentTenant() c: TenantContext,
+    @Param('id') id: string,
+    @Body() d: EditLocationDto,
+  ) {
+    return this.service.edit(c, id, d);
   }
   @Get(':id/business-hours') @TenantRoles(...READ) hours(
     @CurrentTenant() c: TenantContext,
@@ -132,6 +142,13 @@ export class ProvidersController extends ClinicController {
   ) {
     return this.service.update(c, id, d);
   }
+  @Put(':id/edit') @TenantRoles(...WRITE) edit(
+    @CurrentTenant() c: TenantContext,
+    @Param('id') id: string,
+    @Body() d: EditProviderDto,
+  ) {
+    return this.service.edit(c, id, d);
+  }
   @Get(':id/locations') @TenantRoles(...READ) locations(
     @CurrentTenant() c: TenantContext,
     @Param('id') id: string,
@@ -189,6 +206,13 @@ export class ServicesController extends ClinicController {
     @Body() d: UpdateServiceDto,
   ) {
     return this.service.update(c, id, d);
+  }
+  @Put(':id/edit') @TenantRoles(...WRITE) edit(
+    @CurrentTenant() c: TenantContext,
+    @Param('id') id: string,
+    @Body() d: EditServiceDto,
+  ) {
+    return this.service.edit(c, id, d);
   }
   @Get(':id/providers') @TenantRoles(...READ) providers(
     @CurrentTenant() c: TenantContext,

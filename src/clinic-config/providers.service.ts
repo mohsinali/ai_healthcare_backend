@@ -4,6 +4,7 @@ import { PrismaService } from '../database/prisma.service';
 import { TrustedTenantContext as TenantContext } from '../tenants/types/tenant-context';
 import {
   CreateProviderDto,
+  EditProviderDto,
   ListConfigurationDto,
   ReplaceAssignmentsDto,
   UpdateProviderDto,
@@ -78,6 +79,46 @@ export class ProvidersService {
   async update(ctx: TenantContext, id: string, dto: UpdateProviderDto) {
     await this.get(ctx, id);
     return this.prisma.provider.update({ where: { id }, data: this.data(dto) });
+  }
+  async edit(ctx: TenantContext, id: string, dto: EditProviderDto) {
+    await this.get(ctx, id);
+    const [locations, services] = await Promise.all([
+      this.prisma.location.count({
+        where: { tenantId: ctx.tenantId, id: { in: dto.locationIds } },
+      }),
+      this.prisma.service.count({
+        where: { tenantId: ctx.tenantId, id: { in: dto.serviceIds } },
+      }),
+    ]);
+    if (locations !== dto.locationIds.length)
+      throw new NotFoundException('One or more locations were not found.');
+    if (services !== dto.serviceIds.length)
+      throw new NotFoundException('One or more services were not found.');
+    const { locationIds, serviceIds, ...provider } = dto;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.provider.update({ where: { id }, data: this.data(provider) });
+      await tx.providerLocation.deleteMany({
+        where: { tenantId: ctx.tenantId, providerId: id },
+      });
+      await tx.providerLocation.createMany({
+        data: locationIds.map((locationId) => ({
+          tenantId: ctx.tenantId,
+          providerId: id,
+          locationId,
+        })),
+      });
+      await tx.providerService.deleteMany({
+        where: { tenantId: ctx.tenantId, providerId: id },
+      });
+      await tx.providerService.createMany({
+        data: serviceIds.map((serviceId) => ({
+          tenantId: ctx.tenantId,
+          providerId: id,
+          serviceId,
+        })),
+      });
+    });
+    return this.get(ctx, id);
   }
   locations(ctx: TenantContext, id: string) {
     return this.related(ctx, id, 'location');

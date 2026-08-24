@@ -90,6 +90,20 @@ export class UpdateBusinessHoursDto {
   hours!: BusinessHourDto[];
 }
 
+export class EditLocationDto extends UpdateLocationDto {
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  serviceIds!: string[];
+
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique((item: BusinessHourDto) => item.dayOfWeek)
+  @ValidateNested({ each: true })
+  @Type(() => BusinessHourDto)
+  businessHours!: BusinessHourDto[];
+}
+
 export class CreateProviderDto {
   @IsString() @MinLength(1) @MaxLength(80) firstName!: string;
   @IsString() @MinLength(1) @MaxLength(80) lastName!: string;
@@ -101,6 +115,10 @@ export class CreateProviderDto {
 export class UpdateProviderDto extends PartialType(CreateProviderDto) {
   @IsOptional() @IsEnum(ConfigurationStatus) status?: ConfigurationStatus;
 }
+export class EditProviderDto extends UpdateProviderDto {
+  @IsArray() @ArrayUnique() @IsUUID('4', { each: true }) locationIds!: string[];
+  @IsArray() @ArrayUnique() @IsUUID('4', { each: true }) serviceIds!: string[];
+}
 
 export class CreateServiceDto {
   @IsString() @MinLength(1) @MaxLength(120) name!: string;
@@ -109,6 +127,10 @@ export class CreateServiceDto {
 }
 export class UpdateServiceDto extends PartialType(CreateServiceDto) {
   @IsOptional() @IsEnum(ConfigurationStatus) status?: ConfigurationStatus;
+}
+export class EditServiceDto extends UpdateServiceDto {
+  @IsArray() @ArrayUnique() @IsUUID('4', { each: true }) locationIds!: string[];
+  @IsArray() @ArrayUnique() @IsUUID('4', { each: true }) providerIds!: string[];
 }
 
 export class ReplaceAssignmentsDto {
