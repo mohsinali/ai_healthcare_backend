@@ -11,6 +11,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { ClinicConfigModule } from './clinic-config/clinic-config.module';
+import { PatientsModule } from './patients/patients.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { ClinicConfigModule } from './clinic-config/clinic-config.module';
     AuthModule,
     TenantsModule,
     ClinicConfigModule,
+    PatientsModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

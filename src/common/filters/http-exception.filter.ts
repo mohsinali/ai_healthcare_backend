@@ -13,6 +13,9 @@ interface ErrorResponse {
   message: string | string[];
   timestamp: string;
   path: string;
+  code?: string;
+  candidates?: unknown[];
+  errors?: { field: string; message: string }[];
 }
 
 @Catch()
@@ -40,6 +43,39 @@ export class HttpExceptionFilter implements ExceptionFilter {
       timestamp: new Date().toISOString(),
       path: request.originalUrl,
     };
+    if (
+      statusCode === 400 &&
+      exceptionResponse &&
+      typeof exceptionResponse === 'object'
+    ) {
+      const errors = (exceptionResponse as { errors?: unknown }).errors;
+      if (Array.isArray(errors)) {
+        body.errors = errors.filter(
+          (item): item is { field: string; message: string } =>
+            typeof item === 'object' &&
+            item !== null &&
+            typeof (item as { field?: unknown }).field === 'string' &&
+            typeof (item as { message?: unknown }).message === 'string',
+        );
+      }
+    }
+    if (
+      statusCode === 409 &&
+      exceptionResponse &&
+      typeof exceptionResponse === 'object'
+    ) {
+      const details = exceptionResponse as {
+        code?: unknown;
+        candidates?: unknown;
+      };
+      if (
+        details.code === 'POSSIBLE_DUPLICATE' &&
+        Array.isArray(details.candidates)
+      ) {
+        body.code = details.code;
+        body.candidates = details.candidates;
+      }
+    }
 
     response.status(statusCode).json(body);
   }

@@ -40,6 +40,16 @@ enum ConfigurationStatus {
   INACTIVE
 }
 
+enum PatientStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PreferredContactMethod {
+  PHONE
+  EMAIL
+}
+
 enum DayOfWeek {
   MONDAY
   TUESDAY
@@ -77,9 +87,41 @@ model Tenant {
   locations   Location[]
   providers   Provider[]
   services    Service[]
+  patients    Patient[]
 
   @@index([status])
   @@index([name])
+}
+
+model Patient {
+  id                     String                  @id @default(uuid()) @db.Uuid
+  tenantId               String                  @db.Uuid
+  firstName              String
+  normalizedFirstName    String
+  middleName             String?
+  lastName               String
+  normalizedLastName     String
+  dateOfBirth            DateTime                @db.Date
+  phone                  String
+  email                  String?
+  addressLine1           String?
+  addressLine2           String?
+  city                   String?
+  stateProvince          String?
+  postalCode             String?
+  countryCode            String?                 @db.Char(2)
+  preferredContactMethod PreferredContactMethod?
+  status                 PatientStatus           @default(ACTIVE)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  tenant                 Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status])
+  @@index([tenantId, normalizedLastName, normalizedFirstName])
+  @@index([tenantId, phone])
+  @@index([tenantId, email])
+  @@index([tenantId, dateOfBirth])
 }
 
 model Location {

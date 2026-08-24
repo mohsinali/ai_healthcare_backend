@@ -6,6 +6,8 @@ import helmet from 'helmet';
 import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { FieldValidationException } from './common/validation/field-validation.exception';
+import { flattenValidationErrors } from './common/validation/validation-errors';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -28,6 +30,8 @@ async function bootstrap(): Promise<void> {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      exceptionFactory: (errors) =>
+        new FieldValidationException(flattenValidationErrors(errors)),
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
