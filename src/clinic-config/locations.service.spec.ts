@@ -2,6 +2,13 @@ import { TenantRole } from '@prisma/client';
 import { LocationsService } from './locations.service';
 
 describe('LocationsService', () => {
+  const context = {
+    tenantId: 'tenant-id',
+    tenantSlug: 'clinic',
+    tenantRole: TenantRole.CLINIC_OWNER,
+    membershipId: 'membership-id',
+  };
+
   it('creates the location and all seven business-hour rows in one transaction', async () => {
     const created = { id: 'location-id' };
     const complete = { id: created.id, name: 'Clifton Branch' };
@@ -32,24 +39,16 @@ describe('LocationsService', () => {
     };
     const service = new LocationsService(prisma as never);
 
-    const result = await service.create(
-      {
-        tenantId: 'tenant-id',
-        tenantSlug: 'clinic',
-        tenantRole: TenantRole.CLINIC_OWNER,
-        membershipId: 'membership-id',
-      },
-      {
-        name: 'Clifton Branch',
-        phone: '+923343683084',
-        timezone: 'Asia/Karachi',
-        addressLine1: 'MC 1081 Green Town',
-        city: 'Karachi',
-        stateProvince: 'Sindh',
-        postalCode: '75230',
-        countryCode: 'PK',
-      },
-    );
+    const result = await service.create(context, {
+      name: 'Clifton Branch',
+      phone: '+923343683084',
+      timezone: 'Asia/Karachi',
+      addressLine1: 'MC 1081 Green Town',
+      city: 'Karachi',
+      stateProvince: 'Sindh',
+      postalCode: '75230',
+      countryCode: 'PK',
+    });
 
     expect(result).toBe(complete);
     expect(tx.location.create).toHaveBeenCalledTimes(1);
@@ -69,6 +68,35 @@ describe('LocationsService', () => {
           closeTime: null,
         }),
       ]),
+    );
+  });
+
+  it('returns assigned providers and services in a tenant-scoped detail response', async () => {
+    const findFirst = jest.fn().mockResolvedValue({
+      id: 'location-id',
+      tenantId: 'tenant-id',
+      name: 'Main Clinic',
+      businessHours: [],
+      providerLocations: [
+        { provider: { id: 'provider-id', firstName: 'Sarah' } },
+      ],
+      locationServices: [
+        { service: { id: 'service-id', name: 'Consultation' } },
+      ],
+      _count: { providerLocations: 1, locationServices: 1 },
+    });
+    const service = new LocationsService({ location: { findFirst } } as never);
+
+    await expect(service.get(context, 'location-id')).resolves.toMatchObject({
+      providerCount: 1,
+      serviceCount: 1,
+      providers: [{ id: 'provider-id' }],
+      services: [{ id: 'service-id' }],
+    });
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'location-id', tenantId: 'tenant-id' },
+      }),
     );
   });
 });

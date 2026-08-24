@@ -27,6 +27,11 @@ const locationInclude = {
   businessHours: { orderBy: { dayOfWeek: 'asc' as const } },
   _count: { select: { providerLocations: true, locationServices: true } },
 };
+const locationDetailInclude = {
+  ...locationInclude,
+  providerLocations: { include: { provider: true } },
+  locationServices: { include: { service: true } },
+};
 @Injectable()
 export class LocationsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -103,10 +108,15 @@ export class LocationsService {
   async get(ctx: TenantContext, id: string) {
     const value = await this.prisma.location.findFirst({
       where: { id, tenantId: ctx.tenantId },
-      include: locationInclude,
+      include: locationDetailInclude,
     });
     if (!value) throw new NotFoundException('Location not found.');
-    return this.withCounts(value);
+    const { providerLocations, locationServices, ...location } = value;
+    return {
+      ...this.withCounts(location),
+      providers: providerLocations.map((item) => item.provider),
+      services: locationServices.map((item) => item.service),
+    };
   }
   async update(ctx: TenantContext, id: string, dto: UpdateLocationDto) {
     await this.get(ctx, id);
