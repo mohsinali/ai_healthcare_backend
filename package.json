@@ -26,6 +26,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
+    "faqs:seed-development": "ts-node -r tsconfig-paths/register scripts/seed-development-faqs.ts",
     "users:create-super-admin": "ts-node -r tsconfig-paths/register scripts/create-super-admin.ts",
     "users:create": "ts-node -r tsconfig-paths/register scripts/create-user.ts"
   },
