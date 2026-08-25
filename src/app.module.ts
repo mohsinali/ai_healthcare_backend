@@ -13,6 +13,7 @@ import { TenantsModule } from './tenants/tenants.module';
 import { ClinicConfigModule } from './clinic-config/clinic-config.module';
 import { PatientsModule } from './patients/patients.module';
 import { SettingsModule } from './settings/settings.module';
+import { AppointmentsModule } from './appointments/appointments.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { SettingsModule } from './settings/settings.module';
     ClinicConfigModule,
     PatientsModule,
     SettingsModule,
+    AppointmentsModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

@@ -66,36 +66,59 @@ enum DayOfWeek {
   SUNDAY
 }
 
+enum AppointmentStatus {
+  BOOKED
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum AppointmentEventType {
+  CREATED
+  RESCHEDULED
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
 model User {
-  id                String               @id @default(uuid()) @db.Uuid
-  email             String               @unique
-  passwordHash      String
-  firstName         String
-  lastName          String
-  platformRole      PlatformRole?
-  status            UserStatus           @default(ACTIVE)
-  lastLoginAt       DateTime?
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
-  authSessions      AuthSession[]
-  passwordResets    PasswordResetToken[]
-  tenantMemberships TenantMembership[]
+  id                    String               @id @default(uuid()) @db.Uuid
+  email                 String               @unique
+  passwordHash          String
+  firstName             String
+  lastName              String
+  platformRole          PlatformRole?
+  status                UserStatus           @default(ACTIVE)
+  lastLoginAt           DateTime?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  authSessions          AuthSession[]
+  passwordResets        PasswordResetToken[]
+  tenantMemberships     TenantMembership[]
+  createdAppointments   Appointment[]        @relation("AppointmentCreatedBy")
+  cancelledAppointments Appointment[]        @relation("AppointmentCancelledBy")
+  appointmentEvents     AppointmentEvent[]
 }
 
 model Tenant {
-  id          String             @id @default(uuid()) @db.Uuid
-  name        String
-  slug        String             @unique
-  status      TenantStatus       @default(ACTIVE)
-  dateFormat  DateFormat         @default(MM_DD_YYYY)
-  timezone    String             @default("UTC")
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  memberships TenantMembership[]
-  locations   Location[]
-  providers   Provider[]
-  services    Service[]
-  patients    Patient[]
+  id                  String               @id @default(uuid()) @db.Uuid
+  name                String
+  slug                String               @unique
+  status              TenantStatus         @default(ACTIVE)
+  dateFormat          DateFormat           @default(MM_DD_YYYY)
+  timezone            String               @default("UTC")
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  memberships         TenantMembership[]
+  locations           Location[]
+  providers           Provider[]
+  services            Service[]
+  patients            Patient[]
+  appointments        Appointment[]
+  appointmentEvents   AppointmentEvent[]
+  appointmentSequence AppointmentSequence?
 
   @@index([status])
   @@index([name])
@@ -123,6 +146,7 @@ model Patient {
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
   tenant                 Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  appointments           Appointment[]
 
   @@unique([tenantId, id])
   @@index([tenantId, status])
@@ -154,6 +178,7 @@ model Location {
   businessHours         BusinessHour[]
   providerLocations     ProviderLocation[]
   locationServices      LocationService[]
+  appointments          Appointment[]
 
   @@unique([tenantId, normalizedName])
   @@unique([tenantId, id])
@@ -191,6 +216,7 @@ model Provider {
   tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   providerLocations ProviderLocation[]
   providerServices  ProviderService[]
+  appointments      Appointment[]
 
   @@unique([tenantId, id])
   @@index([tenantId, status])
@@ -210,6 +236,7 @@ model Service {
   tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   providerServices ProviderService[]
   locationServices LocationService[]
+  appointments     Appointment[]
 
   @@unique([tenantId, normalizedName])
   @@unique([tenantId, id])
@@ -256,6 +283,66 @@ model LocationService {
   @@unique([locationId, serviceId])
   @@index([tenantId, locationId])
   @@index([tenantId, serviceId])
+}
+
+model AppointmentSequence {
+  tenantId  String   @id @db.Uuid
+  nextValue Int      @default(1)
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Appointment {
+  id                 String             @id @default(uuid()) @db.Uuid
+  tenantId           String             @db.Uuid
+  appointmentNumber  String
+  patientId          String             @db.Uuid
+  locationId         String             @db.Uuid
+  providerId         String             @db.Uuid
+  serviceId          String             @db.Uuid
+  startAt            DateTime           @db.Timestamptz(3)
+  endAt              DateTime           @db.Timestamptz(3)
+  status             AppointmentStatus  @default(BOOKED)
+  reason             String?            @db.VarChar(500)
+  notes              String?            @db.VarChar(2000)
+  createdByUserId    String?            @db.Uuid
+  cancelledAt        DateTime?          @db.Timestamptz(3)
+  cancelledByUserId  String?            @db.Uuid
+  cancellationReason String?            @db.VarChar(500)
+  confirmedAt        DateTime?          @db.Timestamptz(3)
+  createdAt          DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime           @updatedAt @db.Timestamptz(3)
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  patient            Patient            @relation(fields: [tenantId, patientId], references: [tenantId, id], onDelete: Restrict)
+  location           Location           @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: Restrict)
+  provider           Provider           @relation(fields: [tenantId, providerId], references: [tenantId, id], onDelete: Restrict)
+  service            Service            @relation(fields: [tenantId, serviceId], references: [tenantId, id], onDelete: Restrict)
+  createdBy          User?              @relation("AppointmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  cancelledBy        User?              @relation("AppointmentCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  events             AppointmentEvent[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, appointmentNumber])
+  @@index([tenantId, startAt, id])
+  @@index([tenantId, patientId, startAt])
+  @@index([tenantId, providerId, startAt])
+  @@index([tenantId, locationId, startAt])
+  @@index([tenantId, status, startAt])
+}
+
+model AppointmentEvent {
+  id            String               @id @default(uuid()) @db.Uuid
+  tenantId      String               @db.Uuid
+  appointmentId String               @db.Uuid
+  type          AppointmentEventType
+  actorUserId   String?              @db.Uuid
+  occurredAt    DateTime             @default(now()) @db.Timestamptz(3)
+  metadata      Json?
+  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  appointment   Appointment          @relation(fields: [tenantId, appointmentId], references: [tenantId, id], onDelete: Cascade)
+  actorUser     User?                @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, appointmentId, occurredAt])
 }
 
 model TenantMembership {
