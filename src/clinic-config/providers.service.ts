@@ -39,7 +39,7 @@ export class ProvidersService {
       ...(query.status ? { status: query.status } : {}),
       ...(search
         ? {
-            OR: ['firstName', 'lastName', 'displayName']
+            OR: ['firstName', 'lastName', 'displayName', 'title']
               .map((field) => ({
                 [field]: { contains: search, mode: 'insensitive' },
               }))
