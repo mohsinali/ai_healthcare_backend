@@ -25,6 +25,7 @@ const defaults: Record<
   SERVICE: { prefix: 'SRV-', nextValue: 1, padding: 2 },
   PROVIDER: { prefix: 'PRV-', nextValue: 1, padding: 2 },
   PATIENT: { prefix: 'PAT-', nextValue: 1, padding: 2 },
+  FAQ: { prefix: 'FAQ-', nextValue: 1, padding: 2 },
 };
 
 @Injectable()

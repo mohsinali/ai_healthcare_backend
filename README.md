@@ -1,6 +1,7 @@
 # AI Healthcare Backend
 
 See [../MULTI_TENANCY.md](../MULTI_TENANCY.md) for the shared-schema tenancy model, trusted context flow, operator setup, and isolation rules.
+See [../FAQ_KNOWLEDGE_BASE.md](../FAQ_KNOWLEDGE_BASE.md) for the tenant-scoped FAQ domain, APIs, lifecycle, search limitations, and future voice retrieval boundary.
 
 Production-oriented NestJS foundation for the AI Healthcare Front Desk Voice Agent. It is an independently deployable modular monolith backed by PostgreSQL and Prisma. No healthcare domain functionality is included yet.
 
@@ -83,7 +84,8 @@ npm run prisma:studio
 
 `Sequence` is the single tenant-scoped source for human-readable references.
 Its supported types and defaults are `APPOINTMENT` (`APT-`), `LOCATION`
-(`LOC-`), `SERVICE` (`SRV-`), `PROVIDER` (`PRV-`), and `PATIENT` (`PAT-`), all
+(`LOC-`), `SERVICE` (`SRV-`), `PROVIDER` (`PRV-`), `PATIENT` (`PAT-`), and
+`FAQ` (`FAQ-`), all
 with minimum padding 2. Allocation is atomic in PostgreSQL and gaps are allowed.
 
 These immutable numbers are display/search references, not keys. Entity primary

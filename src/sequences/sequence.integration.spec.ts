@@ -59,6 +59,7 @@ describeDatabase('SequenceService database concurrency', () => {
       SequenceType.LOCATION,
       SequenceType.SERVICE,
       SequenceType.PROVIDER,
+      SequenceType.FAQ,
     ];
     const allocations = await Promise.all(
       types.map((type) => service.next(tenantId, type)),
@@ -68,6 +69,7 @@ describeDatabase('SequenceService database concurrency', () => {
       'LOC-01',
       'SRV-01',
       'PRV-01',
+      'FAQ-01',
     ]);
   });
 

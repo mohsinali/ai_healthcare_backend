@@ -62,6 +62,7 @@ describe('SequenceService', () => {
     [SequenceType.SERVICE, 'SRV-', 'SRV-01'],
     [SequenceType.PROVIDER, 'PRV-', 'PRV-01'],
     [SequenceType.PATIENT, 'PAT-', 'PAT-01'],
+    [SequenceType.FAQ, 'FAQ-', 'FAQ-01'],
   ])('uses the centralized default for %s', async (type, prefix, formatted) => {
     const query = jest.fn().mockImplementation((sql: Prisma.Sql) => {
       expect(sql.values).toEqual(expect.arrayContaining([type, prefix, 2]));
