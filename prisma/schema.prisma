@@ -83,6 +83,10 @@ enum AppointmentEventType {
   NO_SHOW
 }
 
+enum SequenceType {
+  APPOINTMENT
+}
+
 model User {
   id                    String               @id @default(uuid()) @db.Uuid
   email                 String               @unique
@@ -103,22 +107,22 @@ model User {
 }
 
 model Tenant {
-  id                  String               @id @default(uuid()) @db.Uuid
-  name                String
-  slug                String               @unique
-  status              TenantStatus         @default(ACTIVE)
-  dateFormat          DateFormat           @default(MM_DD_YYYY)
-  timezone            String               @default("UTC")
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  memberships         TenantMembership[]
-  locations           Location[]
-  providers           Provider[]
-  services            Service[]
-  patients            Patient[]
-  appointments        Appointment[]
-  appointmentEvents   AppointmentEvent[]
-  appointmentSequence AppointmentSequence?
+  id                String             @id @default(uuid()) @db.Uuid
+  name              String
+  slug              String             @unique
+  status            TenantStatus       @default(ACTIVE)
+  dateFormat        DateFormat         @default(MM_DD_YYYY)
+  timezone          String             @default("UTC")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  memberships       TenantMembership[]
+  locations         Location[]
+  providers         Provider[]
+  services          Service[]
+  patients          Patient[]
+  appointments      Appointment[]
+  appointmentEvents AppointmentEvent[]
+  sequences         Sequence[]
 
   @@index([status])
   @@index([name])
@@ -285,11 +289,18 @@ model LocationService {
   @@index([tenantId, serviceId])
 }
 
-model AppointmentSequence {
-  tenantId  String   @id @db.Uuid
-  nextValue Int      @default(1)
-  updatedAt DateTime @updatedAt
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+model Sequence {
+  id        String       @id @default(uuid()) @db.Uuid
+  tenantId  String       @db.Uuid
+  type      SequenceType
+  prefix    String
+  nextValue Int          @default(1)
+  padding   Int          @default(2)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, type])
 }
 
 model Appointment {

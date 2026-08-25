@@ -10,9 +10,11 @@ import {
   DayOfWeek,
   PatientStatus,
   Prisma,
+  SequenceType,
 } from '@prisma/client';
 import { DateTime } from 'luxon';
 import { PrismaService } from '../database/prisma.service';
+import { SequenceService } from '../sequences/sequence.service';
 import { TrustedTenantContext } from '../tenants/types/tenant-context';
 import {
   AvailabilityDto,
@@ -66,7 +68,10 @@ const appointmentInclude = {
 
 @Injectable()
 export class AppointmentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sequences: SequenceService,
+  ) {}
 
   eligibleProviders(c: TrustedTenantContext, dto: EligibleProvidersDto) {
     return this.prisma.provider.findMany({
@@ -193,15 +198,16 @@ export class AppointmentsService {
           range.start,
           range.end,
         );
-        const sequence = await tx.appointmentSequence.upsert({
-          where: { tenantId: c.tenantId },
-          create: { tenantId: c.tenantId, nextValue: 2 },
-          update: { nextValue: { increment: 1 } },
-        });
+        // Allocate independently so an appointment write failure never recycles
+        // a business identifier. Gaps are intentional and safe.
+        const sequence = await this.sequences.next(
+          c.tenantId,
+          SequenceType.APPOINTMENT,
+        );
         const appointment = await tx.appointment.create({
           data: {
             tenantId: c.tenantId,
-            appointmentNumber: `APT-${String(sequence.nextValue - 1).padStart(6, '0')}`,
+            appointmentNumber: sequence.formatted,
             patientId: dto.patientId,
             locationId: dto.locationId,
             providerId: dto.providerId,

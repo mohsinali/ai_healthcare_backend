@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { SequenceService } from '../sequences/sequence.service';
 import { TrustedTenantContext } from '../tenants/types/tenant-context';
 import { AppointmentsService } from './appointments.service';
 
@@ -59,7 +60,10 @@ function setup(options?: {
   };
   return {
     prisma,
-    service: new AppointmentsService(prisma as unknown as PrismaService),
+    service: new AppointmentsService(
+      prisma as unknown as PrismaService,
+      {} as SequenceService,
+    ),
   };
 }
 
