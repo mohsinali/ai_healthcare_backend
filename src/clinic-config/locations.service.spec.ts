@@ -38,7 +38,12 @@ describe('LocationsService', () => {
     const prisma = {
       $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
     };
-    const service = new LocationsService(prisma as never);
+    const service = new LocationsService(
+      prisma as never,
+      {
+        next: jest.fn().mockResolvedValue({ formatted: 'LOC-01', value: 1 }),
+      } as never,
+    );
 
     const result = await service.create(context, {
       name: 'Clifton Branch',
@@ -53,6 +58,13 @@ describe('LocationsService', () => {
 
     expect(result).toBe(complete);
     expect(tx.location.create).toHaveBeenCalledTimes(1);
+    expect(tx.location.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // Jest asymmetric matchers are intentionally typed as any.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        data: expect.objectContaining({ locationNumber: 'LOC-01' }),
+      }),
+    );
     expect(capturedHours).toHaveLength(7);
     expect(capturedHours).toEqual(
       expect.arrayContaining([
@@ -86,7 +98,10 @@ describe('LocationsService', () => {
       ],
       _count: { providerLocations: 1, locationServices: 1 },
     });
-    const service = new LocationsService({ location: { findFirst } } as never);
+    const service = new LocationsService(
+      { location: { findFirst } } as never,
+      {} as never,
+    );
 
     await expect(service.get(context, 'location-id')).resolves.toMatchObject({
       providerCount: 1,
@@ -107,7 +122,7 @@ describe('LocationsService', () => {
   ])(
     'returns invalid %s as a structured field error',
     async (field, invalid) => {
-      const service = new LocationsService({} as never);
+      const service = new LocationsService({} as never, {} as never);
       const promise = service.create(context, {
         name: 'Clifton Branch',
         phone: '+923343683084',

@@ -85,6 +85,10 @@ enum AppointmentEventType {
 
 enum SequenceType {
   APPOINTMENT
+  LOCATION
+  SERVICE
+  PROVIDER
+  PATIENT
 }
 
 model User {
@@ -131,6 +135,7 @@ model Tenant {
 model Patient {
   id                     String                  @id @default(uuid()) @db.Uuid
   tenantId               String                  @db.Uuid
+  patientNumber          String
   firstName              String
   normalizedFirstName    String
   middleName             String?
@@ -153,6 +158,7 @@ model Patient {
   appointments           Appointment[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, patientNumber])
   @@index([tenantId, status])
   @@index([tenantId, normalizedLastName, normalizedFirstName])
   @@index([tenantId, phone])
@@ -163,6 +169,7 @@ model Patient {
 model Location {
   id                    String              @id @default(uuid()) @db.Uuid
   tenantId              String              @db.Uuid
+  locationNumber        String
   name                  String
   normalizedName        String
   status                ConfigurationStatus @default(ACTIVE)
@@ -186,6 +193,7 @@ model Location {
 
   @@unique([tenantId, normalizedName])
   @@unique([tenantId, id])
+  @@unique([tenantId, locationNumber])
   @@index([tenantId, status])
 }
 
@@ -208,6 +216,7 @@ model BusinessHour {
 model Provider {
   id                String              @id @default(uuid()) @db.Uuid
   tenantId          String              @db.Uuid
+  providerNumber    String
   firstName         String
   lastName          String
   displayName       String?
@@ -223,6 +232,7 @@ model Provider {
   appointments      Appointment[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, providerNumber])
   @@index([tenantId, status])
   @@index([tenantId, lastName, firstName])
 }
@@ -230,6 +240,7 @@ model Provider {
 model Service {
   id               String              @id @default(uuid()) @db.Uuid
   tenantId         String              @db.Uuid
+  serviceNumber    String
   name             String
   normalizedName   String
   description      String?
@@ -244,6 +255,7 @@ model Service {
 
   @@unique([tenantId, normalizedName])
   @@unique([tenantId, id])
+  @@unique([tenantId, serviceNumber])
   @@index([tenantId, status])
 }
 

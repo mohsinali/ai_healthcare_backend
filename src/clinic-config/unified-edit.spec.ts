@@ -27,7 +27,7 @@ describe('transactional clinic configuration edits', () => {
       service: { count: jest.fn().mockResolvedValue(1) },
       $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
     };
-    const service = new ProvidersService(prisma as never);
+    const service = new ProvidersService(prisma as never, {} as never);
 
     await service.edit(context, 'provider-id', {
       firstName: 'Ada',
@@ -57,7 +57,7 @@ describe('transactional clinic configuration edits', () => {
       provider: { count: jest.fn().mockResolvedValue(1) },
       $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
     };
-    const service = new ServicesService(prisma as never);
+    const service = new ServicesService(prisma as never, {} as never);
 
     await service.edit(context, 'service-id', {
       name: 'Consultation',
@@ -89,7 +89,7 @@ describe('transactional clinic configuration edits', () => {
       service: { count: jest.fn().mockResolvedValue(1) },
       $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
     };
-    const service = new LocationsService(prisma as never);
+    const service = new LocationsService(prisma as never, {} as never);
     const businessHours = Object.values(DayOfWeek).map((dayOfWeek) => ({
       dayOfWeek,
       isClosed: false,

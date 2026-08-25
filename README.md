@@ -78,6 +78,19 @@ npm run prisma:studio
 - CORS accepts a comma-separated allowlist from `CORS_ORIGIN`; do not use `*` in production.
 - Logging intentionally avoids request bodies, headers, query strings, and exception details in preparation for future PHI-safe practices.
 - Graceful shutdown hooks close Prisma connections on process termination.
+
+## Tenant business identifiers
+
+`Sequence` is the single tenant-scoped source for human-readable references.
+Its supported types and defaults are `APPOINTMENT` (`APT-`), `LOCATION`
+(`LOC-`), `SERVICE` (`SRV-`), `PROVIDER` (`PRV-`), and `PATIENT` (`PAT-`), all
+with minimum padding 2. Allocation is atomic in PostgreSQL and gaps are allowed.
+
+These immutable numbers are display/search references, not keys. Entity primary
+keys and relationships remain UUID-based. Existing entities are backfilled per
+tenant in `createdAt`, then UUID `id`, order; each counter continues at the first
+unused value. Apply migrations during a controlled deployment before enabling
+writes from the new application version.
 # Authentication foundation
 
 Authentication is application-managed. Access tokens live only in frontend memory; rotating refresh tokens are stored in an HttpOnly cookie and only a SHA-256 digest of each high-entropy signed token is persisted. Cookie-backed refresh/logout use POST, credentialed allow-listed CORS, and `SameSite=lax` by default (`Secure=true` is mandatory in production). If a future deployment requires cross-site cookies (`SameSite=none`), add an explicit CSRF token check before enabling it.

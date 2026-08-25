@@ -4,8 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DayOfWeek, Prisma } from '@prisma/client';
+import { DayOfWeek, Prisma, SequenceType } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { SequenceService } from '../sequences/sequence.service';
 import { FieldValidationException } from '../common/validation/field-validation.exception';
 import { TrustedTenantContext as TenantContext } from '../tenants/types/tenant-context';
 import {
@@ -37,13 +38,20 @@ const locationDetailInclude = {
 };
 @Injectable()
 export class LocationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sequences: SequenceService,
+  ) {}
   async create(ctx: TenantContext, dto: CreateLocationDto) {
     const data = this.data(dto, true) as Prisma.LocationUncheckedCreateInput;
     try {
+      const { formatted: locationNumber } = await this.sequences.next(
+        ctx.tenantId,
+        SequenceType.LOCATION,
+      );
       return await this.prisma.$transaction(async (tx) => {
         const location = await tx.location.create({
-          data: { ...data, tenantId: ctx.tenantId },
+          data: { ...data, tenantId: ctx.tenantId, locationNumber },
           select: { id: true },
         });
         await tx.businessHour.createMany({
@@ -78,6 +86,7 @@ export class LocationsService {
       ...(search
         ? {
             OR: [
+              { locationNumber: { contains: search, mode: 'insensitive' } },
               { name: { contains: search, mode: 'insensitive' } },
               { city: { contains: search, mode: 'insensitive' } },
             ],

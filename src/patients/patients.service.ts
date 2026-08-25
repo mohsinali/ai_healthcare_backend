@@ -4,8 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PatientStatus, Prisma } from '@prisma/client';
+import { PatientStatus, Prisma, SequenceType } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { SequenceService } from '../sequences/sequence.service';
 import {
   normalizedName,
   optionalEmail,
@@ -22,7 +23,10 @@ import {
 } from './dto/patient.dto';
 @Injectable()
 export class PatientsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sequences: SequenceService,
+  ) {}
   private dob(value: string) {
     const date = new Date(`${value}T00:00:00.000Z`);
     if (
@@ -107,6 +111,7 @@ export class PatientsService {
       ...(search
         ? {
             OR: [
+              { patientNumber: { contains: search, mode: 'insensitive' } },
               { firstName: { contains: search, mode: 'insensitive' } },
               { middleName: { contains: search, mode: 'insensitive' } },
               { lastName: { contains: search, mode: 'insensitive' } },
@@ -201,10 +206,16 @@ export class PatientsService {
     }
     const input: Omit<CreatePatientDto, 'createAnyway'> = { ...dto };
     delete (input as { createAnyway?: boolean }).createAnyway;
+    const data = this.data(input) as Prisma.PatientUncheckedCreateInput;
+    const { formatted: patientNumber } = await this.sequences.next(
+      c.tenantId,
+      SequenceType.PATIENT,
+    );
     return this.prisma.patient.create({
       data: {
-        ...(this.data(input) as Prisma.PatientUncheckedCreateInput),
+        ...data,
         tenantId: c.tenantId,
+        patientNumber,
       },
     });
   }

@@ -28,10 +28,10 @@ describeDatabase('SequenceService database concurrency', () => {
     await prisma.$disconnect();
   });
 
-  it('atomically initializes and allocates 20 unique tenant values', async () => {
+  it('atomically initializes and allocates 20 unique PATIENT values', async () => {
     const allocated = await Promise.all(
       Array.from({ length: 20 }, () =>
-        service.next(tenantId, SequenceType.APPOINTMENT),
+        service.next(tenantId, SequenceType.PATIENT),
       ),
     );
     expect(new Set(allocated.map(({ value }) => value)).size).toBe(20);
@@ -41,16 +41,34 @@ describeDatabase('SequenceService database concurrency', () => {
     );
     await expect(
       prisma.sequence.findUniqueOrThrow({
-        where: { tenantId_type: { tenantId, type: 'APPOINTMENT' } },
+        where: { tenantId_type: { tenantId, type: 'PATIENT' } },
       }),
     ).resolves.toMatchObject({
-      prefix: 'APT-',
+      prefix: 'PAT-',
       padding: 2,
       nextValue: 21,
     });
     await expect(
-      prisma.sequence.count({ where: { tenantId, type: 'APPOINTMENT' } }),
+      prisma.sequence.count({ where: { tenantId, type: 'PATIENT' } }),
     ).resolves.toBe(1);
+  });
+
+  it('keeps all sequence types independent for one tenant', async () => {
+    const types = [
+      SequenceType.APPOINTMENT,
+      SequenceType.LOCATION,
+      SequenceType.SERVICE,
+      SequenceType.PROVIDER,
+    ];
+    const allocations = await Promise.all(
+      types.map((type) => service.next(tenantId, type)),
+    );
+    expect(allocations.map(({ formatted }) => formatted)).toEqual([
+      'APT-01',
+      'LOC-01',
+      'SRV-01',
+      'PRV-01',
+    ]);
   });
 
   it('keeps another tenant independent', async () => {

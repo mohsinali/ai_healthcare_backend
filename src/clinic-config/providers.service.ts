@@ -3,9 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, SequenceType } from '@prisma/client';
 import { FieldValidationException } from '../common/validation/field-validation.exception';
 import { PrismaService } from '../database/prisma.service';
+import { SequenceService } from '../sequences/sequence.service';
 import { TrustedTenantContext as TenantContext } from '../tenants/types/tenant-context';
 import {
   CreateProviderDto,
@@ -17,10 +18,18 @@ import {
 import { optionalEmail, optionalText, phone } from './clinic-config.helpers';
 @Injectable()
 export class ProvidersService {
-  constructor(private readonly prisma: PrismaService) {}
-  create(ctx: TenantContext, dto: CreateProviderDto) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sequences: SequenceService,
+  ) {}
+  async create(ctx: TenantContext, dto: CreateProviderDto) {
+    const data = this.data(dto);
+    const { formatted: providerNumber } = await this.sequences.next(
+      ctx.tenantId,
+      SequenceType.PROVIDER,
+    );
     return this.prisma.provider.create({
-      data: { ...this.data(dto), tenantId: ctx.tenantId },
+      data: { ...data, tenantId: ctx.tenantId, providerNumber },
     });
   }
   async list(ctx: TenantContext, query: ListConfigurationDto) {
@@ -30,9 +39,13 @@ export class ProvidersService {
       ...(query.status ? { status: query.status } : {}),
       ...(search
         ? {
-            OR: ['firstName', 'lastName', 'displayName'].map((field) => ({
-              [field]: { contains: search, mode: 'insensitive' },
-            })),
+            OR: ['firstName', 'lastName', 'displayName']
+              .map((field) => ({
+                [field]: { contains: search, mode: 'insensitive' },
+              }))
+              .concat({
+                providerNumber: { contains: search, mode: 'insensitive' },
+              }),
           }
         : {}),
     };

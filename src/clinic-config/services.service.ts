@@ -3,8 +3,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, SequenceType } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { SequenceService } from '../sequences/sequence.service';
 import { TrustedTenantContext as TenantContext } from '../tenants/types/tenant-context';
 import {
   CreateServiceDto,
@@ -16,11 +17,19 @@ import {
 import { normalizedName, optionalText } from './clinic-config.helpers';
 @Injectable()
 export class ServicesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sequences: SequenceService,
+  ) {}
   async create(ctx: TenantContext, dto: CreateServiceDto) {
     try {
+      const data = this.data(dto);
+      const { formatted: serviceNumber } = await this.sequences.next(
+        ctx.tenantId,
+        SequenceType.SERVICE,
+      );
       return await this.prisma.service.create({
-        data: { ...this.data(dto), tenantId: ctx.tenantId },
+        data: { ...data, tenantId: ctx.tenantId, serviceNumber },
       });
     } catch (e) {
       this.unique(e);
@@ -32,7 +41,14 @@ export class ServicesService {
     const where: Prisma.ServiceWhereInput = {
       tenantId: ctx.tenantId,
       ...(q.status ? { status: q.status } : {}),
-      ...(search ? { name: { contains: search, mode: 'insensitive' } } : {}),
+      ...(search
+        ? {
+            OR: [
+              { serviceNumber: { contains: search, mode: 'insensitive' } },
+              { name: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
     };
     const [data, total] = await this.prisma.$transaction([
       this.prisma.service.findMany({

@@ -21,9 +21,12 @@ describe('PatientsService', () => {
         create: jest.fn().mockImplementation(({ data }) => data),
       },
     } as never;
-    const result = await new PatientsService(prisma).create(ctx, dto);
+    const result = await new PatientsService(prisma, {
+      next: jest.fn().mockResolvedValue({ formatted: 'PAT-01', value: 1 }),
+    } as never).create(ctx, dto);
     expect(result).toMatchObject({
       tenantId,
+      patientNumber: 'PAT-01',
       firstName: 'Sarah',
       lastName: 'Johnson',
       phone: '+13055550123',
@@ -31,6 +34,7 @@ describe('PatientsService', () => {
     });
   });
   it('warns instead of silently creating a duplicate', async () => {
+    const next = jest.fn();
     const prisma = {
       patient: {
         findMany: jest.fn().mockResolvedValue([
@@ -49,8 +53,9 @@ describe('PatientsService', () => {
       },
     } as never;
     await expect(
-      new PatientsService(prisma).create(ctx, dto),
+      new PatientsService(prisma, { next } as never).create(ctx, dto),
     ).rejects.toBeInstanceOf(ConflictException);
+    expect(next).not.toHaveBeenCalled();
     expect(
       (prisma as { patient: { create: jest.Mock } }).patient.create,
     ).not.toHaveBeenCalled();
@@ -59,7 +64,7 @@ describe('PatientsService', () => {
     const prisma = {
       patient: { findMany: jest.fn(), create: jest.fn() },
     } as never;
-    const promise = new PatientsService(prisma).create(ctx, {
+    const promise = new PatientsService(prisma, {} as never).create(ctx, {
       ...dto,
       phone: '3055550123',
     });
