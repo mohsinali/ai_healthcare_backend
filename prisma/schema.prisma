@@ -112,6 +112,15 @@ enum FAQStatus {
   INACTIVE
 }
 
+enum TelephonyProvider {
+  TWILIO
+}
+
+enum TelephonyNumberStatus {
+  ACTIVE
+  INACTIVE
+}
+
 model User {
   id                    String               @id @default(uuid()) @db.Uuid
   email                 String               @unique
@@ -149,6 +158,7 @@ model Tenant {
   appointmentEvents AppointmentEvent[]
   sequences         Sequence[]
   faqs              FAQ[]
+  telephonyNumbers  TelephonyNumber[]
 
   @@index([status])
   @@index([name])
@@ -213,11 +223,32 @@ model Location {
   locationServices      LocationService[]
   appointments          Appointment[]
   faqs                  FAQ[]
+  telephonyNumbers      TelephonyNumber[]
 
   @@unique([tenantId, normalizedName])
   @@unique([tenantId, id])
   @@unique([tenantId, locationNumber])
   @@index([tenantId, status])
+}
+
+model TelephonyNumber {
+  id                    String                @id @default(uuid()) @db.Uuid
+  tenantId              String                @db.Uuid
+  locationId            String?               @db.Uuid
+  phoneNumber           String                @unique
+  provider              TelephonyProvider
+  providerPhoneNumberId String?
+  status                TelephonyNumberStatus @default(ACTIVE)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  tenant                Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  location              Location?             @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, locationId])
+  @@index([provider, providerPhoneNumberId])
 }
 
 model BusinessHour {

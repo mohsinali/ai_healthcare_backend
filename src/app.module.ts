@@ -15,6 +15,7 @@ import { PatientsModule } from './patients/patients.module';
 import { SettingsModule } from './settings/settings.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { FaqsModule } from './faqs/faqs.module';
+import { TelephonyModule } from './telephony/telephony.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { FaqsModule } from './faqs/faqs.module';
     SettingsModule,
     AppointmentsModule,
     FaqsModule,
+    TelephonyModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
