@@ -15,6 +15,7 @@ export const environmentValidationSchema = Joi.object({
   CORS_ORIGIN: Joi.string().min(1).required(),
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),
+  VOICE_GATEWAY_API_KEY: Joi.string().min(32).required(),
   JWT_ACCESS_TTL: Joi.string().default('15m'),
   JWT_REFRESH_TTL: Joi.string().default('14d'),
   AUTH_REFRESH_COOKIE_NAME: Joi.string().default('aiva_refresh'),
@@ -53,6 +54,15 @@ export const environmentValidationSchema = Joi.object({
       return helpers.error('any.custom', {
         message:
           'AUTH_COOKIE_SAME_SITE=none requires CSRF protection that is not enabled',
+      });
+    }
+    if (
+      environment.VOICE_GATEWAY_API_KEY === environment.JWT_ACCESS_SECRET ||
+      environment.VOICE_GATEWAY_API_KEY === environment.JWT_REFRESH_SECRET
+    ) {
+      return helpers.error('any.custom', {
+        message:
+          'VOICE_GATEWAY_API_KEY must be different from JWT_ACCESS_SECRET and JWT_REFRESH_SECRET',
       });
     }
 

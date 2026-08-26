@@ -8,6 +8,7 @@ describe('environment validation', () => {
     CORS_ORIGIN: 'http://localhost:3001',
     JWT_ACCESS_SECRET: 'access-secret-at-least-thirty-two-characters',
     JWT_REFRESH_SECRET: 'refresh-secret-at-least-thirty-two-characters',
+    VOICE_GATEWAY_API_KEY: 'voice-gateway-test-key-at-least-32-characters',
     FRONTEND_URL: 'http://localhost:3001',
   };
 
@@ -29,6 +30,30 @@ describe('environment validation', () => {
       PORT: 70000,
     });
     expect(result.error?.message).toContain('PORT');
+  });
+
+  it('rejects a missing or weak Voice Gateway credential', () => {
+    const missing: Record<string, unknown> = { ...validEnvironment };
+    delete missing.VOICE_GATEWAY_API_KEY;
+    expect(
+      environmentValidationSchema.validate(missing).error?.message,
+    ).toContain('VOICE_GATEWAY_API_KEY');
+    expect(
+      environmentValidationSchema.validate({
+        ...validEnvironment,
+        VOICE_GATEWAY_API_KEY: 'weak',
+      }).error?.message,
+    ).toContain('VOICE_GATEWAY_API_KEY');
+  });
+
+  it('rejects reuse of a user JWT secret for the Voice Gateway', () => {
+    const result = environmentValidationSchema.validate({
+      ...validEnvironment,
+      VOICE_GATEWAY_API_KEY: validEnvironment.JWT_ACCESS_SECRET,
+    });
+    expect(result.error?.message).toContain(
+      'VOICE_GATEWAY_API_KEY must be different',
+    );
   });
 
   it('rejects wildcard CORS in production', () => {
