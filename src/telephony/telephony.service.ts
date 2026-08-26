@@ -16,7 +16,9 @@ import {
 const telephonyNumberSelect = {
   id: true,
   locationId: true,
-  location: { select: { id: true, locationNumber: true, name: true } },
+  location: {
+    select: { id: true, locationNumber: true, name: true, status: true },
+  },
   phoneNumber: true,
   provider: true,
   providerPhoneNumberId: true,
