@@ -12,6 +12,8 @@ import { CreateWebVoiceSessionDto } from './dto/create-web-voice-session.dto';
 import { WebVoiceSessionService } from './web-voice-session.service';
 
 @ApiTags('web voice sessions')
+// Public by design: the opaque widget key is routing input, and the resolver
+// establishes trusted tenant/location context without clinic or gateway auth.
 @Public()
 @Controller('voice/web')
 export class WebVoiceSessionController {

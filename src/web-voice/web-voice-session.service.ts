@@ -40,6 +40,8 @@ export class WebVoiceSessionService {
       throw new ServiceUnavailableException('Voice service is not configured.');
     }
     try {
+      // Generate on demand and return directly; signed URLs are short-lived
+      // startup credentials and must never be cached, persisted, or logged.
       const signedUrl = await this.elevenLabs.getSignedConversationUrl(agentId);
       this.logger.log({
         event: 'web_voice_session_created',
