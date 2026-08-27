@@ -6,6 +6,7 @@ import {
 } from '../telephony/inbound-number-resolution.error';
 import { InboundNumberResolverService } from '../telephony/inbound-number-resolver.service';
 import { VoiceBootstrapService } from './voice-bootstrap.service';
+import { VoiceChannel } from './context/voice-context';
 
 describe('VoiceBootstrapService', () => {
   const resolved = {
@@ -44,6 +45,7 @@ describe('VoiceBootstrapService', () => {
         locationId: 'location-a',
         locationName: 'Downtown',
         timezone: 'America/New_York',
+        channel: VoiceChannel.PHONE,
       },
       calledNumber: '+13055551001',
     });

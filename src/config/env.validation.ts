@@ -16,6 +16,8 @@ export const environmentValidationSchema = Joi.object({
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),
   VOICE_GATEWAY_API_KEY: Joi.string().min(32).required(),
+  ELEVENLABS_API_KEY: Joi.string().empty('').min(1).optional(),
+  ELEVENLABS_AGENT_ID: Joi.string().empty('').min(1).optional(),
   JWT_ACCESS_TTL: Joi.string().default('15m'),
   JWT_REFRESH_TTL: Joi.string().default('14d'),
   AUTH_REFRESH_COOKIE_NAME: Joi.string().default('aiva_refresh'),

@@ -38,6 +38,7 @@ export class VoiceBootstrapController {
           locationId: 'location-id',
           locationName: 'Downtown Clinic',
           timezone: 'America/New_York',
+          channel: 'PHONE',
         },
         calledNumber: '+13055551001',
       },

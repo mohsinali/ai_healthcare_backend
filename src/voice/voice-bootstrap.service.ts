@@ -9,7 +9,11 @@ import {
   InboundNumberResolutionFailure,
 } from '../telephony/inbound-number-resolution.error';
 import { InboundNumberResolverService } from '../telephony/inbound-number-resolver.service';
-import { VoiceBootstrapResponse, VoiceContext } from './context/voice-context';
+import {
+  PhoneVoiceContext,
+  VoiceBootstrapResponse,
+  VoiceChannel,
+} from './context/voice-context';
 
 @Injectable()
 export class VoiceBootstrapService {
@@ -18,10 +22,11 @@ export class VoiceBootstrapService {
   constructor(private readonly inboundNumbers: InboundNumberResolverService) {}
 
   async bootstrap(calledNumber: string): Promise<VoiceBootstrapResponse> {
-    let context: VoiceContext;
+    let context: PhoneVoiceContext;
     try {
       const resolved = await this.inboundNumbers.resolve(calledNumber);
       context = {
+        channel: VoiceChannel.PHONE,
         telephonyNumberId: resolved.telephonyNumberId,
         calledNumber: resolved.phoneNumber,
         provider: resolved.provider,
@@ -68,6 +73,7 @@ export class VoiceBootstrapService {
         locationId: context.locationId,
         locationName: context.locationName,
         timezone: context.timezone,
+        channel: context.channel,
       },
       calledNumber: context.calledNumber,
     };

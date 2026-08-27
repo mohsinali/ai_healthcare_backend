@@ -17,6 +17,7 @@ import { AppointmentsModule } from './appointments/appointments.module';
 import { FaqsModule } from './faqs/faqs.module';
 import { TelephonyModule } from './telephony/telephony.module';
 import { VoiceModule } from './voice/voice.module';
+import { WebVoiceModule } from './web-voice/web-voice.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { VoiceModule } from './voice/voice.module';
     FaqsModule,
     TelephonyModule,
     VoiceModule,
+    WebVoiceModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
