@@ -83,14 +83,9 @@ There is no Redis, `CallSession`, database conversation state, or location histo
 
 Do not configure tenant or location identifiers as LLM-supplied parameters. The model supplies only `query`; returned location keys must never be spoken to the caller.
 
-### Agent prompt rules
+### Agent System Prompt
 
-- Use `resolve_location` whenever the caller names, asks for, changes, or needs to choose a clinic location. Never guess.
-- Acknowledge one clear match naturally. For multiple matches, ask the caller to choose by name. For no match, say it was not found and ask for another name.
-- When the caller changes location, call `resolve_location` again and treat the successful new result as current for later clinic-specific operations.
-- Do not expose location keys or other internal identifiers.
-
-Examples: “I want Clifton” calls `resolve_location("Clifton")` and acknowledges Clifton. “Actually, use Gulshan instead” calls it again and acknowledges Gulshan. “Which locations do you have?” calls `resolve_location("list locations")` and speaks the returned names. “I want North” with two matches asks which named location the caller means.
+The complete production ElevenLabs System Prompt, including location resolution behavior, is maintained in `ai_healthcare_frontend/docs/voice/elevenlabs-system-prompt.md`. This document remains authoritative for the webhook contract and response assignments, but it is not a second source of Agent prompt text. Copy and publish only the single canonical prompt block from that file.
 
 ## Manual verification
 
