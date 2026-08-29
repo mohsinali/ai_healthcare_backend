@@ -164,4 +164,62 @@ describe('FaqsService', () => {
       }),
     );
   });
+
+  it('scopes voice candidates to ACTIVE tenant-wide plus the resolved location', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const service = new FaqsService(
+      { fAQ: { findMany } } as never,
+      {} as never,
+    );
+    await service.searchApprovedFAQCandidates({
+      tenantId,
+      locationId,
+      terms: ['parking', 'aetna'],
+    });
+    const args = findMany.mock.calls[0][0] as {
+      where: Record<string, unknown>;
+      take: number;
+    };
+    expect(args.where).toMatchObject({
+      tenantId,
+      status: FAQStatus.ACTIVE,
+      OR: [{ locationId }, { locationId: null }],
+    });
+    expect(args.take).toBe(50);
+  });
+
+  it('restricts unresolved voice candidates to tenant-wide FAQs', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const service = new FaqsService(
+      { fAQ: { findMany } } as never,
+      {} as never,
+    );
+    await service.searchApprovedFAQCandidates({
+      tenantId,
+      locationId: null,
+      terms: ['hours'],
+    });
+    const args = findMany.mock.calls[0][0] as {
+      where: Record<string, unknown>;
+    };
+    expect(args.where).toMatchObject({
+      tenantId,
+      status: FAQStatus.ACTIVE,
+      locationId: null,
+    });
+  });
+
+  it('detects location-required matches only among ACTIVE FAQs in the same tenant', async () => {
+    const count = jest.fn().mockResolvedValue(1);
+    const service = new FaqsService({ fAQ: { count } } as never, {} as never);
+    await expect(
+      service.hasApprovedLocationSpecificMatch({ tenantId, terms: ['hours'] }),
+    ).resolves.toBe(true);
+    const args = count.mock.calls[0][0] as { where: Record<string, unknown> };
+    expect(args.where).toMatchObject({
+      tenantId,
+      status: FAQStatus.ACTIVE,
+      locationId: { not: null },
+    });
+  });
 });

@@ -212,4 +212,73 @@ export class FaqsService {
       take: Math.min(input.limit ?? 10, 50),
     });
   }
+
+  async searchApprovedFAQCandidates(input: {
+    tenantId: string;
+    locationId: string | null;
+    terms: string[];
+    limit?: number;
+  }) {
+    const terms = [
+      ...new Set(input.terms.map((term) => term.trim()).filter(Boolean)),
+    ];
+    if (terms.length === 0) return [];
+    return this.prisma.fAQ.findMany({
+      where: {
+        tenantId: input.tenantId,
+        status: FAQStatus.ACTIVE,
+        ...(input.locationId
+          ? { OR: [{ locationId: input.locationId }, { locationId: null }] }
+          : { locationId: null }),
+        AND: [
+          {
+            OR: terms.flatMap((term) => [
+              {
+                question: {
+                  contains: term,
+                  mode: Prisma.QueryMode.insensitive,
+                },
+              },
+              {
+                answer: { contains: term, mode: Prisma.QueryMode.insensitive },
+              },
+              { keywordSearchText: { contains: term.toLocaleLowerCase() } },
+            ]),
+          },
+        ],
+      },
+      select: {
+        question: true,
+        answer: true,
+        keywords: true,
+        locationId: true,
+        updatedAt: true,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      take: Math.min(input.limit ?? 50, 50),
+    });
+  }
+
+  async hasApprovedLocationSpecificMatch(input: {
+    tenantId: string;
+    terms: string[];
+  }): Promise<boolean> {
+    const terms = [
+      ...new Set(input.terms.map((term) => term.trim()).filter(Boolean)),
+    ];
+    if (terms.length === 0) return false;
+    const count = await this.prisma.fAQ.count({
+      where: {
+        tenantId: input.tenantId,
+        status: FAQStatus.ACTIVE,
+        locationId: { not: null },
+        OR: terms.flatMap((term) => [
+          { question: { contains: term, mode: Prisma.QueryMode.insensitive } },
+          { answer: { contains: term, mode: Prisma.QueryMode.insensitive } },
+          { keywordSearchText: { contains: term.toLocaleLowerCase() } },
+        ]),
+      },
+    });
+    return count > 0;
+  }
 }

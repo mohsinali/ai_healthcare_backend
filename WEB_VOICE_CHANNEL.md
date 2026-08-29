@@ -36,6 +36,14 @@ ELEVENLABS_API_KEY=
 ELEVENLABS_AGENT_ID=
 ```
 
+## FAQ voice tool
+
+`POST /api/v1/voice/tools/faq-search` is a machine-authenticated, read-only adapter. It requires both `Authorization: Bearer <VOICE_GATEWAY_API_KEY>` and `X-Voice-Widget-Key: wgt_...`. Machine authentication approves the integration but does not establish a tenant. The server re-resolves the widget key on every request and passes the resulting trusted `VoiceContext` to channel-independent `VoiceFaqService`.
+
+The body accepts only a trimmed `query` string of 1–500 characters. Global whitelist validation rejects routing IDs and additional fields. Search returns at most three deterministic matches containing only `question`, approved `answer`, and `TENANT`/`LOCATION` scope. SQL eligibility is always same-tenant, `ACTIVE`, and either tenant-wide plus the exact resolved location or tenant-wide only when location is unresolved. Inactive, other-tenant, and other-location records cannot become candidates. A tenant-wide miss may report `requiresLocation` when a similar active location-specific FAQ exists.
+
+The endpoint is limited to 60 requests per minute by the existing process-local throttler. It logs only channel, whether location resolved, result count, latency, and failure category; it does not log queries, answers, widget keys, credentials, or headers. ElevenLabs must reach it through public HTTPS; browser CORS changes are neither needed nor appropriate.
+
 ## Manual verification
 
 1. Log in as `CLINIC_OWNER`, select a tenant with `X-Tenant-Id`, and `POST /api/v1/web-voice-channels` with `{ "locationId": null }`.
