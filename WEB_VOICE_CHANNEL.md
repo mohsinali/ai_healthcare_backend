@@ -38,7 +38,9 @@ ELEVENLABS_AGENT_ID=
 
 ## FAQ voice tool
 
-`POST /api/v1/voice/tools/faq-search` is a machine-authenticated, read-only adapter. It requires both `Authorization: Bearer <VOICE_GATEWAY_API_KEY>` and `X-Voice-Widget-Key: wgt_...`. Machine authentication approves the integration but does not establish a tenant. The server re-resolves the widget key on every request and passes the resulting trusted `VoiceContext` to channel-independent `VoiceFaqService`.
+`POST /api/v1/voice/tools/faq-search` is a machine-authenticated, read-only adapter. It requires both `Authorization: Bearer <VOICE_GATEWAY_API_KEY>` and `X-Voice-Widget-Key: wgt_...`. Machine authentication approves the integration but does not establish a tenant. The server re-resolves the widget key on every request and establishes the trusted tenant before considering the optional `X-Voice-Selected-Location-Key` header.
+
+The effective FAQ scope is resolved in this order: trusted tenant from the widget key; an `ACTIVE` location whose tenant and `locationNumber` match a non-blank conversation `selected_location_key`; otherwise the WebVoiceChannel/default `VoiceContext` location; otherwise tenant-wide FAQs only. The selected key is untrusted until this backend validation succeeds. An explicitly supplied unknown, inactive, or other-tenant key receives the same safe 404 and never falls back or changes tenant identity. A missing or blank header preserves existing default behavior.
 
 The body accepts only a trimmed `query` string of 1–500 characters. Global whitelist validation rejects routing IDs and additional fields. Search returns at most three deterministic matches containing only `question`, approved `answer`, and `TENANT`/`LOCATION` scope. SQL eligibility is always same-tenant, `ACTIVE`, and either tenant-wide plus the exact resolved location or tenant-wide only when location is unresolved. Inactive, other-tenant, and other-location records cannot become candidates. A tenant-wide miss may report `requiresLocation` when a similar active location-specific FAQ exists.
 
@@ -66,7 +68,7 @@ The service searches only `ACTIVE` locations whose `tenantId` equals trusted `Vo
 
 The WebVoiceChannel location is only the initial/default location. The public session response supplies its `locationKey`, `locationName`, and `locationTimezone` when resolved, and the browser initializes `selected_location_key`, `selected_location_name`, and `selected_location_timezone`. A successful `resolve_location` tool call must overwrite those response-assigned ElevenLabs conversation variables; calling the tool again changes the selected location while leaving tenant identity unchanged. If startup is tenant-wide, selected-location variables are omitted.
 
-There is no Redis, `CallSession`, database conversation state, or location history. Current selection lives only in ElevenLabs runtime state. FAQ search still uses the WebVoiceChannel default location in this stage. The immediate follow-up is to pass `selected_location_key` through a non-LLM-controlled runtime-variable transport and validate it as an active `locationNumber` in the trusted tenant before constructing FAQ context.
+There is no Redis, `CallSession`, database conversation state, or location history. Current selection lives only in ElevenLabs runtime state. FAQ search receives `selected_location_key` through the dynamic `X-Voice-Selected-Location-Key` webhook header and revalidates it as an active `locationNumber` in the trusted tenant on every request.
 
 ### ElevenLabs webhook configuration
 

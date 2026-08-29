@@ -106,4 +106,36 @@ describe('VoiceFaqService', () => {
     });
     expect(hasApprovedLocationSpecificMatch).not.toHaveBeenCalled();
   });
+
+  it('scopes candidates to a validated selected-location override', async () => {
+    const selectedLocationId = '33333333-3333-4333-8333-333333333333';
+    const searchApprovedFAQCandidates = jest.fn().mockResolvedValue([
+      {
+        question: 'Is parking available?',
+        answer: 'Gulshan parking is available.',
+        keywords: ['parking'],
+        locationId: selectedLocationId,
+        updatedAt,
+      },
+      {
+        question: 'Do you accept cards?',
+        answer: 'Cards are accepted at every clinic.',
+        keywords: ['cards'],
+        locationId: null,
+        updatedAt,
+      },
+    ]);
+    const service = new VoiceFaqService({
+      searchApprovedFAQCandidates,
+      hasApprovedLocationSpecificMatch: jest.fn(),
+    } as never);
+
+    await service.search(context(), 'parking', selectedLocationId);
+
+    expect(searchApprovedFAQCandidates).toHaveBeenCalledWith({
+      tenantId,
+      locationId: selectedLocationId,
+      terms: ['parking'],
+    });
+  });
 });

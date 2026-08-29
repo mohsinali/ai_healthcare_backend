@@ -51,12 +51,13 @@ export class VoiceFaqService {
   async search(
     context: VoiceContext,
     query: string,
+    locationId: string | null = context.locationId,
   ): Promise<VoiceFaqSearchResponse> {
     const normalizedQuery = normalize(query);
     const terms = searchTerms(normalizedQuery);
     const candidates = await this.faqs.searchApprovedFAQCandidates({
       tenantId: context.tenantId,
-      locationId: context.locationId,
+      locationId,
       terms,
     });
     const matches = candidates
@@ -77,7 +78,7 @@ export class VoiceFaqService {
 
     if (matches.length > 0) return { found: true, matches };
     if (
-      !context.locationId &&
+      !locationId &&
       (await this.faqs.hasApprovedLocationSpecificMatch({
         tenantId: context.tenantId,
         terms,
