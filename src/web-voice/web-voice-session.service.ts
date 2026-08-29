@@ -52,7 +52,9 @@ export class WebVoiceSessionService {
         signedUrl,
         context: {
           tenantName: context.tenantName,
+          locationKey: context.locationKey ?? null,
           locationName: context.locationName,
+          locationTimezone: context.locationId ? context.timezone : null,
           locationResolved: context.locationId !== null,
           channel: context.channel,
         },

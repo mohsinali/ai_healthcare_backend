@@ -11,6 +11,7 @@ interface BaseVoiceContext {
   tenantId: string;
   tenantName: string;
   locationId: string | null;
+  locationKey?: string | null;
   locationName: string | null;
   timezone: string | null;
   escalationPhoneNumber: string | null;

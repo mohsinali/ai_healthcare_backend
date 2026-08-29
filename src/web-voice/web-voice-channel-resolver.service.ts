@@ -28,6 +28,7 @@ export class WebVoiceChannelResolverService {
         location: {
           select: {
             id: true,
+            locationNumber: true,
             name: true,
             status: true,
             timezone: true,
@@ -54,6 +55,7 @@ export class WebVoiceChannelResolverService {
         },
         select: {
           id: true,
+          locationNumber: true,
           name: true,
           status: true,
           timezone: true,
@@ -73,6 +75,7 @@ export class WebVoiceChannelResolverService {
       tenantId: mapping.tenant.id,
       tenantName: mapping.tenant.name,
       locationId: location?.id ?? null,
+      locationKey: location?.locationNumber ?? null,
       locationName: location?.name ?? null,
       timezone: location?.timezone ?? mapping.tenant.timezone,
       escalationPhoneNumber: location?.escalationPhoneNumber ?? null,

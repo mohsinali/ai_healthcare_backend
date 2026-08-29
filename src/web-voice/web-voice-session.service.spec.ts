@@ -14,6 +14,7 @@ describe('WebVoiceSessionService', () => {
     tenantId: 'tenant',
     tenantName: 'Clinic',
     locationId: 'location',
+    locationKey: 'LOC-001',
     locationName: 'Downtown',
     timezone: 'UTC',
     escalationPhoneNumber: null,
@@ -50,7 +51,9 @@ describe('WebVoiceSessionService', () => {
       signedUrl: 'wss://signed.example/token',
       context: {
         tenantName: 'Clinic',
+        locationKey: 'LOC-001',
         locationName: 'Downtown',
+        locationTimezone: 'UTC',
         locationResolved: true,
         channel: VoiceChannel.WEB_WIDGET,
       },

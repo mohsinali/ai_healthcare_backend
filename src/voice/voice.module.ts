@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { DatabaseModule } from '../database/database.module';
 import { TelephonyModule } from '../telephony/telephony.module';
 import { FaqsModule } from '../faqs/faqs.module';
 import { WebVoiceModule } from '../web-voice/web-voice.module';
@@ -7,11 +8,22 @@ import { VoiceBootstrapController } from './voice-bootstrap.controller';
 import { VoiceBootstrapService } from './voice-bootstrap.service';
 import { VoiceFaqController } from './voice-faq.controller';
 import { VoiceFaqService } from './voice-faq.service';
+import { VoiceLocationController } from './voice-location.controller';
+import { VoiceLocationService } from './voice-location.service';
 
 @Module({
-  imports: [TelephonyModule, FaqsModule, WebVoiceModule],
-  controllers: [VoiceBootstrapController, VoiceFaqController],
-  providers: [VoiceBootstrapService, VoiceFaqService, VoiceServiceAuthGuard],
+  imports: [DatabaseModule, TelephonyModule, FaqsModule, WebVoiceModule],
+  controllers: [
+    VoiceBootstrapController,
+    VoiceFaqController,
+    VoiceLocationController,
+  ],
+  providers: [
+    VoiceBootstrapService,
+    VoiceFaqService,
+    VoiceLocationService,
+    VoiceServiceAuthGuard,
+  ],
   exports: [VoiceBootstrapService],
 })
 export class VoiceModule {}

@@ -44,6 +44,52 @@ The body accepts only a trimmed `query` string of 1–500 characters. Global whi
 
 The endpoint is limited to 60 requests per minute by the existing process-local throttler. It logs only channel, whether location resolved, result count, latency, and failure category; it does not log queries, answers, widget keys, credentials, or headers. ElevenLabs must reach it through public HTTPS; browser CORS changes are neither needed nor appropriate.
 
+## Location resolution voice tool
+
+`POST /api/v1/voice/tools/resolve-location` is the single location resolver/listing tool. It uses the same machine authentication and `X-Voice-Widget-Key` trust path as FAQ search. Its only body property is a trimmed `query` string of 1–200 characters; global whitelist validation rejects `tenantId`, `locationId`, `widgetKey`, and every other extra property. Tenant identity always comes from the re-resolved widget channel and cannot change during a conversation.
+
+The service searches only `ACTIVE` locations whose `tenantId` equals trusted `VoiceContext.tenantId`. Matching is deterministic: case-insensitive exact name, normalized exact name, then a unique normalized partial match. A unique result is:
+
+```json
+{
+  "resolved": true,
+  "location": {
+    "key": "LOC-001",
+    "name": "Clifton",
+    "timezone": "Asia/Karachi"
+  },
+  "matches": []
+}
+```
+
+`key` is the existing tenant-scoped, unique `locationNumber`, not a database UUID. Any future tool that consumes it must revalidate `tenantId`, `status = ACTIVE`, and `locationNumber`; the key is a reference, not authorization. Multiple partial matches return `resolved: false`, `ambiguous: true`, and at most five `{ key, name }` candidates. No match returns `resolved: false`, `ambiguous: false`, and an empty `matches` array. Clear listing questions use this endpoint and return at most five active locations in `list`. The resolver never falls back to the widget default after an explicit miss.
+
+The WebVoiceChannel location is only the initial/default location. The public session response supplies its `locationKey`, `locationName`, and `locationTimezone` when resolved, and the browser initializes `selected_location_key`, `selected_location_name`, and `selected_location_timezone`. A successful `resolve_location` tool call must overwrite those response-assigned ElevenLabs conversation variables; calling the tool again changes the selected location while leaving tenant identity unchanged. If startup is tenant-wide, selected-location variables are omitted.
+
+There is no Redis, `CallSession`, database conversation state, or location history. Current selection lives only in ElevenLabs runtime state. FAQ search still uses the WebVoiceChannel default location in this stage. The immediate follow-up is to pass `selected_location_key` through a non-LLM-controlled runtime-variable transport and validate it as an active `locationNumber` in the trusted tenant before constructing FAQ context.
+
+### ElevenLabs webhook configuration
+
+- Name: `resolve_location`
+- Description: `Resolve or list clinic locations for the current caller. Use this tool when the caller specifies, asks about, changes, or needs to choose a clinic location. Never guess a location.`
+- Method: `POST`
+- URL: `https://<backend-public-host>/api/v1/voice/tools/resolve-location`
+- `Authorization`: existing Voice Gateway bearer secret
+- `X-Voice-Widget-Key`: dynamic variable `secret__voice_widget_key`
+- JSON body: `query`, supplied from the caller's request
+- Response assignments on successful resolution: `location.key` to `selected_location_key`, `location.name` to `selected_location_name`, and `location.timezone` to `selected_location_timezone`. Configure assignments only for `resolved = true`, so ambiguous/not-found calls cannot replace the current selection.
+
+Do not configure tenant or location identifiers as LLM-supplied parameters. The model supplies only `query`; returned location keys must never be spoken to the caller.
+
+### Agent prompt rules
+
+- Use `resolve_location` whenever the caller names, asks for, changes, or needs to choose a clinic location. Never guess.
+- Acknowledge one clear match naturally. For multiple matches, ask the caller to choose by name. For no match, say it was not found and ask for another name.
+- When the caller changes location, call `resolve_location` again and treat the successful new result as current for later clinic-specific operations.
+- Do not expose location keys or other internal identifiers.
+
+Examples: “I want Clifton” calls `resolve_location("Clifton")` and acknowledges Clifton. “Actually, use Gulshan instead” calls it again and acknowledges Gulshan. “Which locations do you have?” calls `resolve_location("list locations")` and speaks the returned names. “I want North” with two matches asks which named location the caller means.
+
 ## Manual verification
 
 1. Log in as `CLINIC_OWNER`, select a tenant with `X-Tenant-Id`, and `POST /api/v1/web-voice-channels` with `{ "locationId": null }`.
