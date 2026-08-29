@@ -9,16 +9,28 @@ describe('VoiceLocationService', () => {
       name: 'Clifton',
       normalizedName: 'clifton',
       timezone: 'Asia/Karachi',
+      addressLine1: '12 Main Road',
+      addressLine2: null,
+      city: 'Karachi',
+      stateProvince: 'Sindh',
+      postalCode: '75600',
+      countryCode: 'PK',
     },
     {
       locationNumber: 'LOC-002',
       name: 'Northside Clinic',
       normalizedName: 'northside clinic',
       timezone: 'Asia/Karachi',
+      addressLine1: '45 North Avenue',
+      addressLine2: 'Second Floor',
+      city: 'Karachi',
+      stateProvince: 'Sindh',
+      postalCode: '75300',
+      countryCode: 'PK',
     },
   ];
 
-  function create(rows = locations) {
+  function create(rows: Array<Record<string, unknown>> = locations) {
     const findMany = jest.fn().mockResolvedValue(rows);
     return {
       service: new VoiceLocationService({ location: { findMany } } as never),
@@ -26,7 +38,7 @@ describe('VoiceLocationService', () => {
     };
   }
 
-  it('queries only active locations in the trusted tenant', async () => {
+  it('makes inactive and other-tenant locations inaccessible', async () => {
     const { service, findMany } = create();
     await service.resolve(context as never, 'Clifton');
     expect(findMany).toHaveBeenCalledWith(
@@ -34,6 +46,18 @@ describe('VoiceLocationService', () => {
         where: {
           tenantId: 'trusted-tenant',
           status: ConfigurationStatus.ACTIVE,
+        },
+        select: {
+          locationNumber: true,
+          name: true,
+          normalizedName: true,
+          timezone: true,
+          addressLine1: true,
+          addressLine2: true,
+          city: true,
+          stateProvince: true,
+          postalCode: true,
+          countryCode: true,
         },
       }),
     );
@@ -49,11 +73,76 @@ describe('VoiceLocationService', () => {
           key: 'LOC-001',
           name: 'Clifton',
           timezone: 'Asia/Karachi',
+          address: {
+            line1: '12 Main Road',
+            line2: null,
+            city: 'Karachi',
+            stateProvince: 'Sindh',
+            postalCode: '75600',
+            country: 'PK',
+          },
         },
         matches: [],
       });
     },
   );
+
+  it('returns safe address fields for normalized exact and unique partial matches', async () => {
+    const { service } = create();
+    for (const query of ['Northside--Clinic', 'Northside']) {
+      const result = await service.resolve(context as never, query);
+      expect(result).toMatchObject({
+        resolved: true,
+        location: {
+          key: 'LOC-002',
+          name: 'Northside Clinic',
+          timezone: 'Asia/Karachi',
+          address: {
+            line1: '45 North Avenue',
+            line2: 'Second Floor',
+            city: 'Karachi',
+            stateProvince: 'Sindh',
+            postalCode: '75300',
+            country: 'PK',
+          },
+        },
+      });
+    }
+  });
+
+  it('does not expose database or internal fields from a resolved record', async () => {
+    const { service } = create([
+      {
+        ...locations[0],
+        id: 'database-uuid',
+        tenantId: 'trusted-tenant',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        escalationPhoneNumber: '+15550000000',
+      },
+    ]);
+    const result = await service.resolve(context as never, 'Clifton');
+    expect(result).toEqual({
+      resolved: true,
+      location: {
+        key: 'LOC-001',
+        name: 'Clifton',
+        timezone: 'Asia/Karachi',
+        address: {
+          line1: '12 Main Road',
+          line2: null,
+          city: 'Karachi',
+          stateProvince: 'Sindh',
+          postalCode: '75600',
+          country: 'PK',
+        },
+      },
+      matches: [],
+    });
+    expect(JSON.stringify(result)).not.toMatch(
+      /database-uuid|tenantId|createdAt|updatedAt|escalationPhoneNumber/,
+    );
+  });
 
   it('returns a small ambiguous list without UUIDs', async () => {
     const { service } = create([
@@ -77,6 +166,24 @@ describe('VoiceLocationService', () => {
           { key: 'LOC-002', name: 'Clifton South' },
         ],
       },
+    );
+  });
+
+  it('keeps list results compact even when full location details are available', async () => {
+    const { service } = create();
+    const result = await service.resolve(
+      context as never,
+      'Which locations do you have?',
+    );
+    expect(result).toEqual({
+      resolved: false,
+      list: [
+        { key: 'LOC-001', name: 'Clifton' },
+        { key: 'LOC-002', name: 'Northside Clinic' },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toMatch(
+      /"address"|"timezone"|"tenantId"|"id"/,
     );
   });
 

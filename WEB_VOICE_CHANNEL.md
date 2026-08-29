@@ -58,13 +58,23 @@ The service searches only `ACTIVE` locations whose `tenantId` equals trusted `Vo
   "location": {
     "key": "LOC-001",
     "name": "Clifton",
-    "timezone": "Asia/Karachi"
+    "timezone": "Asia/Karachi",
+    "address": {
+      "line1": "12 Main Road",
+      "line2": null,
+      "city": "Karachi",
+      "stateProvince": "Sindh",
+      "postalCode": "75600",
+      "country": "PK"
+    }
   },
   "matches": []
 }
 ```
 
-`key` is the existing tenant-scoped, unique `locationNumber`, not a database UUID. Any future tool that consumes it must revalidate `tenantId`, `status = ACTIVE`, and `locationNumber`; the key is a reference, not authorization. Multiple partial matches return `resolved: false`, `ambiguous: true`, and at most five `{ key, name }` candidates. No match returns `resolved: false`, `ambiguous: false`, and an empty `matches` array. Clear listing questions use this endpoint and return at most five active locations in `list`. The resolver never falls back to the widget default after an explicit miss.
+`key` is the existing tenant-scoped, unique `locationNumber`, not a database UUID. The successful response maps the existing validated `Location` fields `addressLine1`, optional `addressLine2`, `city`, `stateProvince`, `postalCode`, and two-letter `countryCode` into the caller-facing `address` object (`line1`, `line2`, `city`, `stateProvince`, `postalCode`, and `country`). The agent should speak only available components naturally and must not fabricate missing values. This structured address is authoritative for basic location-address questions and does not need to be duplicated in FAQ knowledge.
+
+The response deliberately excludes the database UUID, `tenantId`, tenant slug, timestamps, email and phone fields, escalation numbers, internal relationships, configuration metadata, and audit data. Any future tool that consumes `key` must revalidate `tenantId`, `status = ACTIVE`, and `locationNumber`; the key is a reference, not authorization. Multiple partial matches return `resolved: false`, `ambiguous: true`, and at most five `{ key, name }` candidates. Clear listing questions return the same compact `{ key, name }` shape, so addresses and timezones are disclosed only after one location resolves. No match returns `resolved: false`, `ambiguous: false`, and an empty `matches` array. The resolver never falls back to the widget default after an explicit miss.
 
 The WebVoiceChannel location is only the initial/default location. The public session response supplies its `locationKey`, `locationName`, and `locationTimezone` when resolved, and the browser initializes `selected_location_key`, `selected_location_name`, and `selected_location_timezone`. A successful `resolve_location` tool call must overwrite those response-assigned ElevenLabs conversation variables; calling the tool again changes the selected location while leaving tenant identity unchanged. If startup is tenant-wide, selected-location variables are omitted.
 
@@ -83,11 +93,25 @@ There is no Redis, `CallSession`, database conversation state, or location histo
 
 Do not configure tenant or location identifiers as LLM-supplied parameters. The model supplies only `query`; returned location keys must never be spoken to the caller.
 
+After changing the tool schema or canonical prompt, copy the configuration to ElevenLabs, save it, and **PUBLISH** the Agent manually. Saving without publishing does not update application conversations. Do not make paid/live ElevenLabs calls as part of automated verification.
+
 ### Agent System Prompt
 
 The complete production ElevenLabs System Prompt, including location resolution behavior, is maintained in `ai_healthcare_frontend/docs/voice/elevenlabs-system-prompt.md`. This document remains authoritative for the webhook contract and response assignments, but it is not a second source of Agent prompt text. Copy and publish only the single canonical prompt block from that file.
 
 ## Manual verification
+
+For a cheap direct tool check, send a machine-authenticated request without invoking ElevenLabs:
+
+```bash
+curl -sS -X POST 'https://<backend-public-host>/api/v1/voice/tools/resolve-location' \
+  -H 'Authorization: Bearer <VOICE_GATEWAY_API_KEY>' \
+  -H 'X-Voice-Widget-Key: wgt_<public-widget-key>' \
+  -H 'Content-Type: application/json' \
+  --data '{"query":"Qureshi Medical Center"}'
+```
+
+Confirm `resolved` is true, the name and structured address are correct, and no database UUID or `tenantId` is present. After publishing the updated Agent, the optional browser smoke test is: “What is the address of Qureshi Medical Center?” It should call `resolve_location`, set the current location, and answer from the returned address without an FAQ call.
 
 1. Log in as `CLINIC_OWNER`, select a tenant with `X-Tenant-Id`, and `POST /api/v1/web-voice-channels` with `{ "locationId": null }`.
 2. Confirm the response contains a generated `wgt_...` key and default `ACTIVE` status, but no tenant ownership can be supplied in the body.

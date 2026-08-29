@@ -13,8 +13,21 @@ interface LocationSummary {
   timezone?: string;
 }
 
+interface LocationAddress {
+  line1: string;
+  line2: string | null;
+  city: string;
+  stateProvince: string;
+  postalCode: string;
+  country: string;
+}
+
+interface ResolvedLocation extends Required<LocationSummary> {
+  address: LocationAddress;
+}
+
 export type VoiceLocationResponse =
-  | { resolved: true; location: Required<LocationSummary>; matches: [] }
+  | { resolved: true; location: ResolvedLocation; matches: [] }
   | {
       resolved: false;
       ambiguous?: boolean;
@@ -40,6 +53,12 @@ export class VoiceLocationService {
         name: true,
         normalizedName: true,
         timezone: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        stateProvince: true,
+        postalCode: true,
+        countryCode: true,
       },
       orderBy: [{ name: 'asc' }, { locationNumber: 'asc' }],
     });
@@ -85,6 +104,12 @@ type LocationRecord = {
   name: string;
   normalizedName: string;
   timezone: string;
+  addressLine1: string;
+  addressLine2: string | null;
+  city: string;
+  stateProvince: string;
+  postalCode: string;
+  countryCode: string;
 };
 
 function resolved(location: LocationRecord): VoiceLocationResponse {
@@ -94,6 +119,14 @@ function resolved(location: LocationRecord): VoiceLocationResponse {
       key: location.locationNumber,
       name: location.name,
       timezone: location.timezone,
+      address: {
+        line1: location.addressLine1,
+        line2: location.addressLine2,
+        city: location.city,
+        stateProvince: location.stateProvince,
+        postalCode: location.postalCode,
+        country: location.countryCode,
+      },
     },
     matches: [],
   };
