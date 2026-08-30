@@ -21,6 +21,7 @@ describe('VoiceDirectoryController', () => {
       { resolve } as never,
       {} as never,
       {} as never,
+      {} as never,
     );
     await expect(
       controller.searchServices('tenant-a', undefined, {}),
@@ -32,16 +33,22 @@ describe('VoiceDirectoryController', () => {
     const context = { tenantId: 'tenant-a', locationId: 'default-location' };
     const searchServices = jest.fn().mockResolvedValue({ services: [] });
     const searchProviders = jest.fn().mockResolvedValue({ providers: [] });
+    const searchAvailability = jest.fn().mockResolvedValue({ slots: [] });
     const selectedResolve = jest.fn().mockResolvedValue('selected-location');
     const controller = new VoiceDirectoryController(
       { resolve: jest.fn().mockResolvedValue(context) } as never,
       { searchServices, searchProviders } as never,
       { resolve: selectedResolve } as never,
+      { search: searchAvailability } as never,
     );
     await controller.searchServices(widgetKey, ' LOC-002 ', { query: 'care' });
     await controller.searchProviders(widgetKey, 'LOC-002', {
       query: 'Sarah',
       serviceName: 'Consultation',
+    });
+    await controller.searchAvailability(widgetKey, 'LOC-002', {
+      serviceName: 'Consultation',
+      timeOfDay: 'morning',
     });
     expect(selectedResolve).toHaveBeenCalledWith('tenant-a', 'LOC-002');
     expect(searchServices).toHaveBeenCalledWith(
@@ -52,6 +59,11 @@ describe('VoiceDirectoryController', () => {
     expect(searchProviders).toHaveBeenCalledWith(
       context,
       { query: 'Sarah', serviceName: 'Consultation' },
+      'selected-location',
+    );
+    expect(searchAvailability).toHaveBeenCalledWith(
+      context,
+      { serviceName: 'Consultation', timeOfDay: 'morning' },
       'selected-location',
     );
   });

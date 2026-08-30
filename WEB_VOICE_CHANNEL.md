@@ -90,6 +90,88 @@ Service results contain only location name plus configured service name, public 
 
 Normal conversational outcomes are HTTP 200 results with `ok`, `no_match`, `location_required`, or, for provider service resolution, `service_not_found`. An existing service with no associated providers returns `no_match` with an empty provider list and does not imply appointment unavailability.
 
+## Availability search voice tool
+
+`POST /api/v1/voice/tools/search-availability` is a read-only search adapter. It never creates, holds, changes, confirms, reschedules, or cancels an appointment and never reads or writes patient data. It uses the same Voice Gateway bearer authentication, trusted widget tenant context, and tenant-validated selected-location header as the directory tools.
+
+The JSON body accepts only:
+
+- `serviceName` (required): trimmed configured service name, maximum 200 characters.
+- `providerName` (optional): trimmed provider name, maximum 200 characters; blank means absent.
+- `startDate` and `endDate` (optional): clinic-local date-only values in `YYYY-MM-DD` form.
+- `timeOfDay` (optional): exactly `any`, `morning`, `afternoon`, or `evening`; omitted means `any`.
+
+Every other property is rejected. In particular, do not configure tenant, clinic, location, service, provider, patient, appointment, duration, or timezone IDs/values as body parameters. Omitted dates search seven clinic-local calendar days beginning with the location's current local date. Ranges are inclusive, bounded to 14 days, and cannot be reversed.
+
+The appointments-domain service calculates 15-minute candidate starts within active location business hours, using the configured positive service duration. A slot cannot extend beyond close. `BOOKED` and `CONFIRMED` appointments block time using `existingStart < candidateEnd AND existingEnd > candidateStart`; `CANCELLED`, `COMPLETED`, and `NO_SHOW` do not block. Only future slots are returned. Time-of-day boundaries are clinic-local: morning is before 12:00, afternoon is 12:00 through before 17:00, and evening is 17:00 onward. Luxon applies the location's IANA timezone and DST rules; ambiguous fallback candidate times are omitted. Results sort by start and then provider name and expose at most five numbered options.
+
+Service eligibility requires an active same-tenant service with a stored `LocationService`. Provider eligibility requires an active same-tenant provider with both a stored `ProviderLocation` for the selected location and `ProviderService` for the service. The domain revalidates all of these trusted identifiers. Normal HTTP 200 statuses are `ok`, `no_availability`, `location_required`, `service_not_found`, `provider_not_found`, and `provider_not_qualified`. Responses contain display names, service duration, local offset-aware slot boundaries, and no UUIDs or internal metadata.
+
+The current schema does not represent provider-specific working hours, closures, holidays, time off, or schedule exceptions. Until those are modeled, availability uses active location business hours for every eligible provider. Search results are informational and must be rechecked atomically by a future booking flow.
+
+### Exact ElevenLabs `search_availability` configuration
+
+- Name: `search_availability`
+- Description: `Search open appointment times for a configured service at the current selected clinic location. Optionally search for a named provider and a clinic-local date range or time of day. Results are informational only and do not book or reserve a slot.`
+- Method: `POST`
+- Endpoint: `https://<backend-public-host>/api/v1/voice/tools/search-availability`
+- Authentication: secret `Authorization` header with value `Bearer <VOICE_GATEWAY_API_KEY>`
+- Dynamic header: `X-Voice-Widget-Key` = `secret__voice_widget_key`
+- Dynamic header: `X-Voice-Selected-Location-Key` = `selected_location_key`
+- Body description: `Search criteria supplied from the conversation. Send serviceName and only the optional caller preferences that are known. Never send internal identifiers, patient information, duration, or timezone.`
+- `serviceName` (string, required): `The configured service requested by the caller, such as General Consultation. Maximum 200 characters.`
+- `providerName` (string, optional): `The particular provider requested by the caller. Omit when the caller has no preference. Maximum 200 characters.`
+- `startDate` (string, optional): `First clinic-local search date in YYYY-MM-DD format. Omit to begin on the clinic's current local date.`
+- `endDate` (string, optional): `Last clinic-local search date in YYYY-MM-DD format, inclusive and no more than 14 days from startDate.`
+- `timeOfDay` (string enum, optional): `Clinic-local preference. One of any, morning, afternoon, or evening. Omit or use any when there is no preference.`
+
+Example body:
+
+```json
+{
+  "serviceName": "General Consultation",
+  "providerName": "Dr. Sarah Ahmed",
+  "startDate": "2026-09-01",
+  "endDate": "2026-09-07",
+  "timeOfDay": "morning"
+}
+```
+
+Example successful response:
+
+```json
+{
+  "status": "ok",
+  "location": { "name": "Downtown Clinic", "timezone": "America/New_York" },
+  "service": { "name": "General Consultation", "durationMinutes": 30 },
+  "requestedProvider": "Dr. Sarah Ahmed",
+  "slots": [
+    {
+      "option": 1,
+      "providerName": "Dr. Sarah Ahmed",
+      "localDate": "2026-09-01",
+      "localTime": "09:00",
+      "startsAt": "2026-09-01T09:00:00.000-04:00",
+      "endsAt": "2026-09-01T09:30:00.000-04:00"
+    }
+  ],
+  "message": "One appointment time was found."
+}
+```
+
+Example expected no-result response:
+
+```json
+{
+  "status": "no_availability",
+  "location": { "name": "Downtown Clinic", "timezone": "America/New_York" },
+  "service": { "name": "General Consultation", "durationMinutes": 30 },
+  "requestedProvider": null,
+  "slots": [],
+  "message": "No appointment times were found for General Consultation in the requested range."
+}
+```
+
 Configure two ElevenLabs webhook tools named `search_services` and `search_providers`. Both use `POST`, the existing Voice Gateway bearer secret, dynamic `X-Voice-Widget-Key: secret__voice_widget_key`, and dynamic `X-Voice-Selected-Location-Key: selected_location_key`. The service body exposes only optional `query`; the provider body exposes only optional `query` and `serviceName`. Do not configure any routing or ID body parameters. After adding the tools, copy the canonical frontend System Prompt, save, and **PUBLISH** the Agent.
 
 ### ElevenLabs webhook configuration

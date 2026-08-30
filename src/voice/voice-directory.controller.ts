@@ -21,6 +21,11 @@ import { WebVoiceChannelResolverService } from '../web-voice/web-voice-channel-r
 import { VoiceServiceAuthGuard } from './auth/voice-service-auth.guard';
 import { VoiceProviderSearchDto } from './dto/voice-provider-search.dto';
 import { VoiceServiceSearchDto } from './dto/voice-service-search.dto';
+import { VoiceAvailabilitySearchDto } from './dto/voice-availability-search.dto';
+import {
+  VoiceAvailabilityResponse,
+  VoiceAvailabilityService,
+} from './voice-availability.service';
 import {
   VoiceDirectoryService,
   VoiceProviderSearchResponse,
@@ -38,6 +43,7 @@ export class VoiceDirectoryController {
     private readonly resolver: WebVoiceChannelResolverService,
     private readonly directory: VoiceDirectoryService,
     private readonly selectedLocations: VoiceSelectedLocationService,
+    private readonly availability: VoiceAvailabilityService,
   ) {}
 
   @Post('search-services')
@@ -72,6 +78,21 @@ export class VoiceDirectoryController {
   ): Promise<VoiceProviderSearchResponse> {
     const { context, locationId } = await this.scope(widgetKey, selectedKey);
     return this.directory.searchProviders(context, dto, locationId);
+  }
+
+  @Post('search-availability')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiHeader({ name: 'X-Voice-Widget-Key', required: true })
+  @ApiHeader({ name: 'X-Voice-Selected-Location-Key', required: false })
+  @ApiOkResponse({ description: 'Voice-safe open appointment slots.' })
+  async searchAvailability(
+    @Headers('x-voice-widget-key') widgetKey: string | undefined,
+    @Headers('x-voice-selected-location-key') selectedKey: string | undefined,
+    @Body() dto: VoiceAvailabilitySearchDto,
+  ): Promise<VoiceAvailabilityResponse> {
+    const { context, locationId } = await this.scope(widgetKey, selectedKey);
+    return this.availability.search(context, dto, locationId);
   }
 
   private async scope(widgetKey?: string, selectedKey?: string) {

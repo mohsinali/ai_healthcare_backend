@@ -13,9 +13,17 @@ import { VoiceLocationService } from './voice-location.service';
 import { VoiceSelectedLocationService } from './voice-selected-location.service';
 import { VoiceDirectoryController } from './voice-directory.controller';
 import { VoiceDirectoryService } from './voice-directory.service';
+import { AppointmentsModule } from '../appointments/appointments.module';
+import { VoiceAvailabilityService } from './voice-availability.service';
 
 @Module({
-  imports: [DatabaseModule, TelephonyModule, FaqsModule, WebVoiceModule],
+  imports: [
+    DatabaseModule,
+    TelephonyModule,
+    FaqsModule,
+    WebVoiceModule,
+    AppointmentsModule,
+  ],
   controllers: [
     VoiceBootstrapController,
     VoiceFaqController,
@@ -28,6 +36,7 @@ import { VoiceDirectoryService } from './voice-directory.service';
     VoiceLocationService,
     VoiceSelectedLocationService,
     VoiceDirectoryService,
+    VoiceAvailabilityService,
     VoiceServiceAuthGuard,
   ],
   exports: [VoiceBootstrapService],
