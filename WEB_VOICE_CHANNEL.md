@@ -80,6 +80,18 @@ The WebVoiceChannel location is only the initial/default location. The public se
 
 There is no Redis, `CallSession`, database conversation state, or location history. Current selection lives only in ElevenLabs runtime state. FAQ search receives `selected_location_key` through the dynamic `X-Voice-Selected-Location-Key` webhook header and revalidates it as an active `locationNumber` in the trusted tenant on every request.
 
+## Services and providers voice tools
+
+`POST /api/v1/voice/tools/search-services` accepts an optional trimmed `query` string of at most 200 characters. `POST /api/v1/voice/tools/search-providers` accepts optional trimmed `query` and `serviceName` strings of at most 200 characters. Empty strings are treated as absent. Both use the FAQ tool's machine authentication, trusted widget context, and selected-location header flow. Global whitelist validation rejects every extra body property, including tenant, clinic, location, and database identifiers.
+
+Both tools require an effective active location. An unresolved tenant-wide channel returns `location_required`; it never searches across locations. Queries require the trusted `tenantId`, exact active location, and `ACTIVE` configuration status. Results are ordered deterministically and limited to ten.
+
+Service results contain only location name plus configured service name, public description, and duration. Provider results contain only location name, public display/constructed name, and service names. Provider eligibility is the intersection of an active `Provider`, its stored `ProviderLocation`, and—when filtered by service—its stored `ProviderService`; returned services must also be active and have a stored `LocationService` for the selected location. The schema has no specialty field, so no specialty is inferred or returned. Neither tool reads appointments or patients.
+
+Normal conversational outcomes are HTTP 200 results with `ok`, `no_match`, `location_required`, or, for provider service resolution, `service_not_found`. An existing service with no associated providers returns `no_match` with an empty provider list and does not imply appointment unavailability.
+
+Configure two ElevenLabs webhook tools named `search_services` and `search_providers`. Both use `POST`, the existing Voice Gateway bearer secret, dynamic `X-Voice-Widget-Key: secret__voice_widget_key`, and dynamic `X-Voice-Selected-Location-Key: selected_location_key`. The service body exposes only optional `query`; the provider body exposes only optional `query` and `serviceName`. Do not configure any routing or ID body parameters. After adding the tools, copy the canonical frontend System Prompt, save, and **PUBLISH** the Agent.
+
 ### ElevenLabs webhook configuration
 
 - Name: `resolve_location`
