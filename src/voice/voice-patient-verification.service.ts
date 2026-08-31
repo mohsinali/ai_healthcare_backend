@@ -6,6 +6,7 @@ import {
   normalizePatientPhone,
   parsePatientDateOfBirth,
 } from '../patients/patient-normalization';
+import { patientNameSimilarity } from '../patients/patient-name-similarity';
 import { VoiceSessionService } from '../voice-session/voice-session.service';
 import { VoiceIdentifyPatientDto } from './dto/voice-patient-verification.dto';
 import { ResolvedVoiceToolSession } from './voice-tool-session.service';
@@ -26,6 +27,10 @@ const MANUAL: PatientVerificationResponse = {
     'Automated patient verification cannot continue for this conversation.',
 };
 
+const NAME_SIMILARITY_THRESHOLD = 0.85;
+// Overflow fails closed by storing no candidates; candidates are never truncated.
+const MAX_PATIENT_CANDIDATES = 25;
+
 @Injectable()
 export class VoicePatientVerificationService {
   constructor(
@@ -39,19 +44,43 @@ export class VoicePatientVerificationService {
   ): Promise<PatientVerificationResponse> {
     if (this.sessions.patientVerification(resolved.session).locked)
       return MANUAL;
-    const candidates = await this.prisma.patient.findMany({
+    const submittedFirstName = normalizePatientName(dto.firstName);
+    const submittedLastName = normalizePatientName(dto.lastName);
+    const eligiblePatients = await this.prisma.patient.findMany({
       where: {
         tenantId: resolved.context.tenantId,
         status: PatientStatus.ACTIVE,
-        normalizedFirstName: normalizePatientName(dto.firstName),
-        normalizedLastName: normalizePatientName(dto.lastName),
         dateOfBirth: parsePatientDateOfBirth(dto.dateOfBirth),
       },
-      select: { id: true },
+      select: { id: true, firstName: true, lastName: true },
     });
+    const normalizedPatients = eligiblePatients.map((patient) => ({
+      id: patient.id,
+      firstName: normalizePatientName(patient.firstName),
+      lastName: normalizePatientName(patient.lastName),
+    }));
+    const exactCandidates = normalizedPatients.filter(
+      (patient) =>
+        patient.firstName === submittedFirstName &&
+        patient.lastName === submittedLastName,
+    );
+    const candidates =
+      exactCandidates.length > 0
+        ? exactCandidates
+        : normalizedPatients.filter(
+            (patient) =>
+              patientNameSimilarity(submittedFirstName, patient.firstName) >=
+                NAME_SIMILARITY_THRESHOLD &&
+              patientNameSimilarity(submittedLastName, patient.lastName) >=
+                NAME_SIMILARITY_THRESHOLD,
+          );
+    const candidateIds =
+      candidates.length <= MAX_PATIENT_CANDIDATES
+        ? candidates.map(({ id }) => id)
+        : [];
     const outcome = await this.sessions.replacePatientCandidates(
       resolved.token,
-      candidates.map(({ id }) => id),
+      candidateIds,
     );
     if (outcome === 'locked') return MANUAL;
     return {

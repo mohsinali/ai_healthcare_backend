@@ -48,7 +48,9 @@ describe('VoicePatientVerificationService', () => {
 
   it('stores only active same-tenant exact normalized identification IDs', async () => {
     sessions.patientVerification.mockReturnValue({ locked: false });
-    prisma.patient.findMany.mockResolvedValue([{ id: 'patient-a' }]);
+    prisma.patient.findMany.mockResolvedValue([
+      { id: 'patient-a', firstName: 'Jane', lastName: 'Doe' },
+    ]);
     sessions.replacePatientCandidates.mockResolvedValue('updated');
 
     await expect(
@@ -66,11 +68,9 @@ describe('VoicePatientVerificationService', () => {
       where: {
         tenantId: 'tenant-a',
         status: PatientStatus.ACTIVE,
-        normalizedFirstName: 'jane',
-        normalizedLastName: 'doe',
         dateOfBirth: new Date('1985-04-17T00:00:00.000Z'),
       },
-      select: { id: true },
+      select: { id: true, firstName: true, lastName: true },
     });
     expect(sessions.replacePatientCandidates).toHaveBeenCalledWith('token', [
       'patient-a',
@@ -94,7 +94,12 @@ describe('VoicePatientVerificationService', () => {
 
   it.each([
     { candidates: [] },
-    { candidates: [{ id: 'patient-a' }, { id: 'patient-b' }] },
+    {
+      candidates: [
+        { id: 'patient-a', firstName: 'Jane', lastName: 'Doe' },
+        { id: 'patient-b', firstName: 'Jane', lastName: 'Doe' },
+      ],
+    },
   ])(
     'returns the identical identification response for zero or multiple candidates',
     async ({ candidates }) => {
@@ -114,6 +119,118 @@ describe('VoicePatientVerificationService', () => {
       });
     },
   );
+
+  it('gives all exact matches precedence over otherwise qualifying fuzzy matches', async () => {
+    sessions.patientVerification.mockReturnValue({ locked: false });
+    prisma.patient.findMany.mockResolvedValue([
+      { id: 'exact-a', firstName: 'Arthur', lastName: 'Jorning' },
+      { id: 'exact-b', firstName: ' ARTHUR ', lastName: 'JORNING' },
+      { id: 'fuzzy', firstName: 'Aurthur', lastName: 'Joerning' },
+    ]);
+    sessions.replacePatientCandidates.mockResolvedValue('updated');
+
+    await service.identify(resolved, {
+      firstName: 'Arthur',
+      lastName: 'Jorning',
+      dateOfBirth: '2006-05-07',
+    });
+
+    expect(sessions.replacePatientCandidates).toHaveBeenCalledWith('token', [
+      'exact-a',
+      'exact-b',
+    ]);
+  });
+
+  it('stores the combined Arthur/Aurthur and Jorning/Joerning fuzzy candidate', async () => {
+    sessions.patientVerification.mockReturnValue({ locked: false });
+    prisma.patient.findMany.mockResolvedValue([
+      { id: 'patient-a', firstName: 'Aurthur', lastName: 'Joerning' },
+    ]);
+    sessions.replacePatientCandidates.mockResolvedValue('updated');
+
+    await service.identify(resolved, {
+      firstName: 'Arthur',
+      lastName: 'Jorning',
+      dateOfBirth: '2006-05-07',
+    });
+
+    expect(prisma.patient.findMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-a',
+        status: PatientStatus.ACTIVE,
+        dateOfBirth: new Date('2006-05-07T00:00:00.000Z'),
+      },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    expect(sessions.replacePatientCandidates).toHaveBeenCalledWith('token', [
+      'patient-a',
+    ]);
+  });
+
+  it.each([
+    ['high first-name and low last-name similarity', 'Aurthur', 'Different'],
+    ['low first-name and high last-name similarity', 'Different', 'Joerning'],
+    ['both names below threshold', 'Different', 'Unrelated'],
+  ])('rejects %s', async (_case, firstName, lastName) => {
+    sessions.patientVerification.mockReturnValue({ locked: false });
+    prisma.patient.findMany.mockResolvedValue([
+      { id: 'patient-a', firstName, lastName },
+    ]);
+    sessions.replacePatientCandidates.mockResolvedValue('updated');
+
+    await service.identify(resolved, {
+      firstName: 'Arthur',
+      lastName: 'Jorning',
+      dateOfBirth: '2006-05-07',
+    });
+
+    expect(sessions.replacePatientCandidates).toHaveBeenCalledWith('token', []);
+  });
+
+  it('stores every qualifying fuzzy candidate rather than only the highest scoring one', async () => {
+    sessions.patientVerification.mockReturnValue({ locked: false });
+    prisma.patient.findMany.mockResolvedValue([
+      { id: 'patient-a', firstName: 'Aurthur', lastName: 'Joerning' },
+      { id: 'patient-b', firstName: 'Arthurr', lastName: 'Jornings' },
+    ]);
+    sessions.replacePatientCandidates.mockResolvedValue('updated');
+
+    await service.identify(resolved, {
+      firstName: 'Arthur',
+      lastName: 'Jorning',
+      dateOfBirth: '2006-05-07',
+    });
+
+    expect(sessions.replacePatientCandidates).toHaveBeenCalledWith('token', [
+      'patient-a',
+      'patient-b',
+    ]);
+  });
+
+  it('fails closed instead of truncating a candidate tier above the defensive maximum', async () => {
+    sessions.patientVerification.mockReturnValue({ locked: false });
+    prisma.patient.findMany.mockResolvedValue(
+      Array.from({ length: 26 }, (_, index) => ({
+        id: `patient-${index}`,
+        firstName: 'Jane',
+        lastName: 'Doe',
+      })),
+    );
+    sessions.replacePatientCandidates.mockResolvedValue('updated');
+
+    await expect(
+      service.identify(resolved, {
+        firstName: 'Jane',
+        lastName: 'Doe',
+        dateOfBirth: '1985-04-17',
+      }),
+    ).resolves.toEqual({
+      status: 'verification_required',
+      message:
+        'Please provide the phone number registered with the clinic to continue verification.',
+    });
+    expect(sessions.replacePatientCandidates).toHaveBeenCalledWith('token', []);
+  });
 
   it('does not query patients when verification is called before identification', async () => {
     sessions.patientVerification.mockReturnValue({
@@ -260,7 +377,13 @@ describe('VoicePatientVerificationService', () => {
     const warn = jest.spyOn(Logger.prototype, 'warn');
     const error = jest.spyOn(Logger.prototype, 'error');
     sessions.patientVerification.mockReturnValue({ locked: false });
-    prisma.patient.findMany.mockResolvedValue([{ id: 'patient-a' }]);
+    prisma.patient.findMany.mockResolvedValue([
+      {
+        id: 'patient-a',
+        firstName: 'SensitiveFirst',
+        lastName: 'SensitiveLast',
+      },
+    ]);
     sessions.replacePatientCandidates.mockResolvedValue('updated');
     await service.identify(resolved, {
       firstName: 'SensitiveFirst',
