@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { ElevenLabsService } from './elevenlabs.service';
 import { WebVoiceChannelResolverService } from './web-voice-channel-resolver.service';
+import { VoiceSessionService } from '../voice-session/voice-session.service';
 
 @Injectable()
 export class WebVoiceSessionService {
@@ -16,6 +17,7 @@ export class WebVoiceSessionService {
     private readonly resolver: WebVoiceChannelResolverService,
     private readonly elevenLabs: ElevenLabsService,
     private readonly config: ConfigService,
+    private readonly voiceSessions: VoiceSessionService,
   ) {}
 
   async create(widgetKey: string) {
@@ -43,6 +45,12 @@ export class WebVoiceSessionService {
       // Generate on demand and return directly; signed URLs are short-lived
       // startup credentials and must never be cached, persisted, or logged.
       const signedUrl = await this.elevenLabs.getSignedConversationUrl(agentId);
+      const { token } = await this.voiceSessions.create({
+        tenantId: context.tenantId,
+        channel: context.channel,
+        channelIdentity: context.webVoiceChannelId,
+        selectedLocationId: context.locationId,
+      });
       this.logger.log({
         event: 'web_voice_session_created',
         channel: context.channel,
@@ -50,6 +58,7 @@ export class WebVoiceSessionService {
       });
       return {
         signedUrl,
+        voiceSessionToken: token,
         context: {
           tenantName: context.tenantName,
           locationKey: context.locationKey ?? null,

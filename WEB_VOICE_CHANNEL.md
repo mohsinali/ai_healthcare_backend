@@ -9,7 +9,25 @@ WEB:   widgetKey   -> WebVoiceChannel -> Tenant + optional Location -> VoiceCont
 PHONE: calledNumber -> TelephonyNumber -> Tenant + optional Location -> VoiceContext
 ```
 
-Business tools consume `VoiceContext` and remain channel-independent. `channel` is `WEB_WIDGET` or `PHONE`. This foundation has no Twilio dependency; the paused phone implementation remains intact and maps to `PHONE`.
+Business tools consume `VoiceContext` and remain channel-independent. `channel` is `WEB_WIDGET` or `PHONE`. Web tool contexts also contain a trusted internal `voiceSessionId` only after Redis validation; it is never returned in a tool response.
+
+## Redis-backed application voice sessions
+
+`POST /api/v1/voice/web/session` now creates a distinct application-owned session for every request/tab and responds with an ElevenLabs signed URL plus `voiceSessionToken`. The response is `Cache-Control: no-store`. The credential is 32 random bytes encoded as 43 base64url characters. The browser keeps it only in the current startup closure and supplies it to ElevenLabs as `secret__voice_session_token`; it is never stored in browser storage, URLs, logs, PostgreSQL, or Redis.
+
+Redis stores JSON at `voice:session:v1:<sha256(token)>` with state version 1, internal UUID, tenant ID, `WEB_WIDGET`, WebVoiceChannel ID, nullable selected location ID, creation time, and absolute expiry. Default lifetime is 1,800 seconds. Reads never refresh TTL; location updates use the original absolute expiry. Redis loss or unavailability invalidates/fails closed active sessions with controlled 401/503 responses.
+
+Every web voice tool (`faq-search`, `resolve-location`, `search-services`, `search-providers`, and `search-availability`) requires:
+
+- `Authorization: Bearer <VOICE_GATEWAY_API_KEY>`
+- `X-Voice-Widget-Key: {{secret__voice_widget_key}}`
+- `X-Voice-Session-Token: {{secret__voice_session_token}}`
+
+Configure the two runtime inputs as ElevenLabs **secret dynamic variables**, so they are usable only in webhook headers and are not sent to the LLM. The backend hashes the session token, loads Redis, and verifies tenant, channel, and WebVoiceChannel identity against freshly resolved trusted gateway context. All validation failures use the same expired/invalid response.
+
+The legacy `X-Voice-Selected-Location-Key: {{selected_location_key}}` header is temporarily retained and adapted. It is no longer authoritative: the backend revalidates an active, same-tenant location and binds its database ID to only the current Redis session. `resolve_location` also binds a successful result server-side. All location-dependent tools read the Redis session location. A session may start tenant-wide, and different tabs/sessions remain isolated.
+
+Manual ElevenLabs dashboard configuration and live testing remain pending while credits are unavailable. Add the session-token header to all five tools and publish the Agent; do not add patient-verification prompt instructions in this milestone.
 
 ## Model and resolution
 

@@ -1,5 +1,20 @@
 # AI Healthcare Backend
 
+## Redis for native local development
+
+The NestJS and Next.js applications continue to run directly on the host. Voice sessions require Redis at `REDIS_HOST`/`REDIS_PORT` (defaults: `127.0.0.1:6379`). On macOS:
+
+```bash
+brew install redis
+brew services start redis
+redis-cli ping
+brew services stop redis
+```
+
+`REDIS_PASSWORD` may be empty only outside production. As an optional Redis-only Docker alternative, run `docker run --rm -p 127.0.0.1:6379:6379 redis:7.4.5-alpine`. This does not change the native application workflow. Redis holds only short-lived voice state; losing Redis data invalidates active conversations and never affects durable PostgreSQL business data.
+
+Production uses `docker-compose.yml`, requires a non-empty `REDIS_PASSWORD`, waits for Redis health, and exposes Redis only on the internal `data` network—there is no host port binding or persistence volume.
+
 See [../MULTI_TENANCY.md](../MULTI_TENANCY.md) for the shared-schema tenancy model, trusted context flow, operator setup, and isolation rules.
 See [../FAQ_KNOWLEDGE_BASE.md](../FAQ_KNOWLEDGE_BASE.md) for the tenant-scoped FAQ domain, APIs, lifecycle, search limitations, and future voice retrieval boundary.
 

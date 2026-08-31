@@ -6,9 +6,10 @@ import { WebVoiceChannelsController } from './web-voice-channels.controller';
 import { WebVoiceChannelsService } from './web-voice-channels.service';
 import { WebVoiceSessionController } from './web-voice-session.controller';
 import { WebVoiceSessionService } from './web-voice-session.service';
+import { VoiceSessionModule } from '../voice-session/voice-session.module';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, VoiceSessionModule],
   controllers: [WebVoiceChannelsController, WebVoiceSessionController],
   providers: [
     WebVoiceChannelsService,

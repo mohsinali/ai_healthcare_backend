@@ -15,6 +15,8 @@ import { VoiceDirectoryController } from './voice-directory.controller';
 import { VoiceDirectoryService } from './voice-directory.service';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { VoiceAvailabilityService } from './voice-availability.service';
+import { VoiceSessionModule } from '../voice-session/voice-session.module';
+import { VoiceToolSessionService } from './voice-tool-session.service';
 
 @Module({
   imports: [
@@ -23,6 +25,7 @@ import { VoiceAvailabilityService } from './voice-availability.service';
     FaqsModule,
     WebVoiceModule,
     AppointmentsModule,
+    VoiceSessionModule,
   ],
   controllers: [
     VoiceBootstrapController,
@@ -38,6 +41,7 @@ import { VoiceAvailabilityService } from './voice-availability.service';
     VoiceDirectoryService,
     VoiceAvailabilityService,
     VoiceServiceAuthGuard,
+    VoiceToolSessionService,
   ],
   exports: [VoiceBootstrapService],
 })

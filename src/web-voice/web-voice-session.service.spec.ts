@@ -29,14 +29,19 @@ describe('WebVoiceSessionService', () => {
         key === 'ELEVENLABS_AGENT_ID' ? defaultAgent : undefined,
       ),
     };
+    const createSession = jest
+      .fn()
+      .mockResolvedValue({ token: 't'.repeat(43) });
     return {
       service: new WebVoiceSessionService(
         { resolve } as never,
         { getSignedConversationUrl } as never,
         config as never,
+        { create: createSession } as never,
       ),
       resolve,
       getSignedConversationUrl,
+      createSession,
     };
   };
 
@@ -49,6 +54,7 @@ describe('WebVoiceSessionService', () => {
     expect(getSignedConversationUrl).toHaveBeenCalledWith('agent_default');
     expect(result).toEqual({
       signedUrl: 'wss://signed.example/token',
+      voiceSessionToken: 't'.repeat(43),
       context: {
         tenantName: 'Clinic',
         locationKey: 'LOC-001',

@@ -28,6 +28,8 @@ export interface WebWidgetVoiceContext extends BaseVoiceContext {
   channel: VoiceChannel.WEB_WIDGET;
   webVoiceChannelId: string;
   agentId: string | null;
+  /** Present only after a Redis-backed application session is validated. */
+  voiceSessionId?: string;
 }
 
 export type VoiceContext = PhoneVoiceContext | WebWidgetVoiceContext;
