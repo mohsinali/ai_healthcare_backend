@@ -27,7 +27,7 @@ Configure the two runtime inputs as ElevenLabs **secret dynamic variables**, so 
 
 The legacy `X-Voice-Selected-Location-Key: {{selected_location_key}}` header is temporarily retained and adapted. It is no longer authoritative: the backend revalidates an active, same-tenant location and binds its database ID to only the current Redis session. `resolve_location` also binds a successful result server-side. All location-dependent tools read the Redis session location. A session may start tenant-wide, and different tabs/sessions remain isolated.
 
-Manual ElevenLabs dashboard configuration and live testing remain pending while credits are unavailable. Add the session-token header to all five tools and publish the Agent; do not add patient-verification prompt instructions in this milestone.
+Manual ElevenLabs dashboard configuration and live testing remain pending while credits are unavailable. Add the session-token header to all seven tools and publish the Agent.
 
 ## Model and resolution
 
@@ -210,6 +210,73 @@ After changing the tool schema or canonical prompt, copy the configuration to El
 ### Agent System Prompt
 
 The complete production ElevenLabs System Prompt, including location resolution behavior, is maintained in `ai_healthcare_frontend/docs/voice/elevenlabs-system-prompt.md`. This document remains authoritative for the webhook contract and response assignments, but it is not a second source of Agent prompt text. Copy and publish only the single canonical prompt block from that file.
+
+## Patient identification and verification tools
+
+Both tools use `POST`, `Authorization: Bearer <VOICE_GATEWAY_API_KEY>`, `X-Voice-Widget-Key: {{secret__voice_widget_key}}`, and `X-Voice-Session-Token: {{secret__voice_session_token}}`. They resolve the same trusted Redis session as every other web voice tool. Do not configure tenant, patient, location, widget, session, candidate, attempt, lockout, or verified-state body properties.
+
+### `identify_patient`
+
+- URL: `https://<backend-public-host>/api/v1/voice/tools/identify-patient`
+- Description: `Begin privacy-preserving identification of an existing patient before a future appointment workflow. Supply the caller's first name, last name, and date of birth. The result never indicates whether a matching record exists.`
+- Body description: `Basic patient information supplied by the caller. Use date-only YYYY-MM-DD. Do not send internal identifiers or other personal or medical information.`
+- `firstName` (string, required, maximum 80): `Patient's first name.`
+- `lastName` (string, required, maximum 80): `Patient's last name.`
+- `dateOfBirth` (string, required): `Patient's date of birth in strict YYYY-MM-DD format.`
+- Effective throttle: 5 requests per 60 seconds per existing NestJS throttler tracking scope.
+
+```json
+{
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "dateOfBirth": "1985-04-17"
+}
+```
+
+When unlocked, every zero, one, or multiple-match outcome is identical: `verification_required`. A locked session returns `manual_verification_required`.
+
+### `verify_patient`
+
+- URL: `https://<backend-public-host>/api/v1/voice/tools/verify-patient`
+- Description: `Verify the previously identified existing patient using the phone number registered with the clinic. The result never reveals which input failed or any patient information.`
+- Body description: `The registered patient phone number supplied by the caller. Do not send caller ID, internal identifiers, or reset/attempt state.`
+- `phoneNumber` (string, required, maximum 30): `Registered international phone number, such as +1 416 555 0123.`
+- Effective throttle: 6 requests per 60 seconds per existing NestJS throttler tracking scope.
+
+```json
+{
+  "phoneNumber": "+1 416 555 0123"
+}
+```
+
+Structured HTTP 200 statuses are:
+
+- `identification_required`: identification has not been performed in this flow.
+- `not_verified`: verification failed before the third failed attempt.
+- `verified`: exactly one active same-tenant candidate matched the exact normalized phone.
+- `manual_verification_required`: the third failure locked the session, or the session was already locked.
+
+Exact response messages:
+
+| Status | Message |
+| --- | --- |
+| `verification_required` | `Please provide the phone number registered with the clinic to continue verification.` |
+| `identification_required` | `Patient identification is required before verification.` |
+| `not_verified` | `The patient could not be verified. Please try again.` |
+| `verified` | `Patient verification was successful.` |
+| `manual_verification_required` | `Automated patient verification cannot continue for this conversation.` |
+
+Identification always returns `verification_required` (unless locked) with the message requesting the registered phone number. No response contains patient data, IDs, candidate counts, submitted values, or session state.
+
+### Session and concurrency rules
+
+Patient state is embedded in the existing `voice:session:v1:<sha256(token)>` JSON and contains only internal candidate IDs, an internal verified ID, failed-attempt count, lock flag, identification completion, and flow version. It never stores submitted names, DOB, or phone. Lua compare-and-set operations update the existing key with Redis `KEEPTTL`, preserving its original absolute 30-minute expiry.
+
+Identification replaces candidates, increments the flow version, and clears a prior verified ID, but never resets attempts or lockout. Verification queries only the snapshotted candidates and then atomically applies its result only if the flow version is unchanged. Concurrent stale verification work retries against the newer flow. Failed calls atomically increment attempts; the third locks the session. Success clears candidates and stores only the verified internal ID. Only a genuinely new application session and token can reset lockout; there is no reset endpoint and no durable cross-session lockout.
+
+The internal `VoicePatientVerificationService.getVerifiedPatientId` method is for future backend appointment workflows. It accepts only an already trusted/resolved voice-tool session, reloads Redis, rejects missing/locked verification, and rechecks active same-tenant ownership in PostgreSQL. It is not exposed as an HTTP route.
+
+The application HTTP setup does not log request bodies, and these controllers add no submitted values, candidate IDs, or counts to logs. The current Prisma schema has no `AuditLog` model or durable audit service, so no audit migration or competing logging abstraction was introduced; durable patient-verification audit events remain a follow-up when that application capability exists.
 
 ## Manual verification
 

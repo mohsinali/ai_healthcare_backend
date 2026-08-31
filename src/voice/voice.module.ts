@@ -17,6 +17,8 @@ import { AppointmentsModule } from '../appointments/appointments.module';
 import { VoiceAvailabilityService } from './voice-availability.service';
 import { VoiceSessionModule } from '../voice-session/voice-session.module';
 import { VoiceToolSessionService } from './voice-tool-session.service';
+import { VoicePatientVerificationController } from './voice-patient-verification.controller';
+import { VoicePatientVerificationService } from './voice-patient-verification.service';
 
 @Module({
   imports: [
@@ -32,6 +34,7 @@ import { VoiceToolSessionService } from './voice-tool-session.service';
     VoiceFaqController,
     VoiceLocationController,
     VoiceDirectoryController,
+    VoicePatientVerificationController,
   ],
   providers: [
     VoiceBootstrapService,
@@ -42,7 +45,8 @@ import { VoiceToolSessionService } from './voice-tool-session.service';
     VoiceAvailabilityService,
     VoiceServiceAuthGuard,
     VoiceToolSessionService,
+    VoicePatientVerificationService,
   ],
-  exports: [VoiceBootstrapService],
+  exports: [VoiceBootstrapService, VoicePatientVerificationService],
 })
 export class VoiceModule {}

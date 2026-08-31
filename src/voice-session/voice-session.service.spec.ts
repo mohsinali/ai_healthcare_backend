@@ -151,4 +151,18 @@ describe('VoiceSessionService', () => {
     );
     await expect(create()).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
+
+  it('fails closed when Redis is unavailable during patient-state updates', async () => {
+    redis.execute.mockRejectedValue(
+      new ServiceUnavailableException(
+        'Transient session service is unavailable.',
+      ),
+    );
+    await expect(
+      service.replacePatientCandidates('x'.repeat(43), ['patient-a']),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(
+      service.applyPatientVerification('x'.repeat(43), 1, null),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
 });

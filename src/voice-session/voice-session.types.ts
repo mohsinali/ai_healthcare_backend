@@ -9,6 +9,16 @@ export interface VoiceSessionRecord {
   channel: VoiceChannel;
   channelIdentity: string;
   selectedLocationId: string | null;
+  patientVerification?: PatientVerificationState;
   createdAt: string;
   expiresAt: string;
+}
+
+export interface PatientVerificationState {
+  candidatePatientIds: string[];
+  verifiedPatientId: string | null;
+  failedAttempts: number;
+  locked: boolean;
+  identificationCompleted: boolean;
+  identificationFlowVersion: number;
 }
