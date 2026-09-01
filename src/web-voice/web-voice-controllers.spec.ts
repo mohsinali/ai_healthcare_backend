@@ -5,6 +5,7 @@ import { TENANT_ROLES_KEY } from '../tenants/decorators/tenant-roles.decorator';
 import { CreateWebVoiceSessionDto } from './dto/create-web-voice-session.dto';
 import { WebVoiceChannelsController } from './web-voice-channels.controller';
 import { WebVoiceSessionController } from './web-voice-session.controller';
+import { HEADERS_METADATA } from '@nestjs/common/constants';
 
 /* Controller method references are inspected as metadata targets, never invoked. */
 /* eslint-disable @typescript-eslint/unbound-method */
@@ -68,5 +69,16 @@ describe('Web voice controller security boundaries', () => {
       'patientName',
       'dateOfBirth',
     ]).not.toContain('widgetKey');
+  });
+
+  it('prevents caching the response that contains the raw session token', () => {
+    const headers = Reflect.getMetadata(
+      HEADERS_METADATA,
+      WebVoiceSessionController.prototype.create,
+    ) as Array<{ name: string; value: string }>;
+    expect(headers).toContainEqual({
+      name: 'Cache-Control',
+      value: 'no-store',
+    });
   });
 });

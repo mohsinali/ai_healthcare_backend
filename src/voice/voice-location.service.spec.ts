@@ -29,6 +29,12 @@ describe('VoiceLocationService', () => {
       countryCode: 'PK',
     },
   ];
+  const qureshi = {
+    ...locations[0],
+    locationNumber: 'LOC-003',
+    name: 'Qureshi Medical Centre',
+    normalizedName: 'qureshi medical centre',
+  };
 
   function create(rows: Array<Record<string, unknown>> = locations) {
     const findMany = jest.fn().mockResolvedValue(rows);
@@ -63,8 +69,8 @@ describe('VoiceLocationService', () => {
     );
   });
 
-  it.each(['Clifton', 'clifton', 'Clifton clinic'])(
-    'resolves exact, case-insensitive, and unique partial query %s',
+  it.each(['Clifton', 'clifton', '  CLIFTON  '])(
+    'resolves exact canonical and case-insensitive query %s',
     async (query) => {
       const { service } = create();
       await expect(service.resolve(context as never, query)).resolves.toEqual({
@@ -87,9 +93,9 @@ describe('VoiceLocationService', () => {
     },
   );
 
-  it('returns safe address fields for normalized exact and unique partial matches', async () => {
+  it('returns safe address fields for normalized punctuation differences', async () => {
     const { service } = create();
-    for (const query of ['Northside--Clinic', 'Northside']) {
+    for (const query of ['Northside--Clinic', ' Northside   Clinic ']) {
       const result = await service.resolve(context as never, query);
       expect(result).toMatchObject({
         resolved: true,
@@ -108,6 +114,75 @@ describe('VoiceLocationService', () => {
         },
       });
     }
+  });
+
+  it.each([
+    'Qureshi Medical Center',
+    'Qureshi Medical Centre',
+    'qureshi medical CENTER',
+    '  Qureshi   Medical, Center!  ',
+  ])(
+    'canonicalizes safe spelling and formatting variants: %s',
+    async (query) => {
+      const { service } = create([qureshi]);
+      await expect(
+        service.resolve(context as never, query),
+      ).resolves.toMatchObject({
+        resolved: true,
+        location: { key: 'LOC-003', name: 'Qureshi Medical Centre' },
+      });
+    },
+  );
+
+  it('canonicalizes Centre to Center in the opposite stored spelling direction', async () => {
+    const { service } = create([
+      { ...qureshi, name: 'Qureshi Medical Center' },
+    ]);
+    await expect(
+      service.resolve(context as never, 'Qureshi Medical Centre'),
+    ).resolves.toMatchObject({
+      resolved: true,
+      location: { name: 'Qureshi Medical Center' },
+    });
+  });
+
+  it('resolves a unique high-confidence full-name typo', async () => {
+    const { service } = create([qureshi, locations[1]]);
+    await expect(
+      service.resolve(context as never, 'Qureshi Medcal Centre'),
+    ).resolves.toMatchObject({
+      resolved: true,
+      location: { key: 'LOC-003' },
+    });
+  });
+
+  it('gives a canonical exact match precedence over fuzzy candidates', async () => {
+    const { service } = create([
+      qureshi,
+      {
+        ...locations[1],
+        locationNumber: 'LOC-004',
+        name: 'Qureshi Medical Centers',
+        normalizedName: 'qureshi medical centers',
+      },
+    ]);
+    await expect(
+      service.resolve(context as never, 'Qureshi Medical Center'),
+    ).resolves.toMatchObject({
+      resolved: true,
+      location: { key: 'LOC-003' },
+    });
+  });
+
+  it('does not resolve low-confidence or partial-name queries', async () => {
+    const { service } = create([qureshi]);
+    await expect(service.resolve(context as never, 'Qureshi')).resolves.toEqual(
+      {
+        resolved: false,
+        ambiguous: false,
+        matches: [],
+      },
+    );
   });
 
   it('does not expose database or internal fields from a resolved record', async () => {
@@ -144,29 +219,32 @@ describe('VoiceLocationService', () => {
     );
   });
 
-  it('returns a small ambiguous list without UUIDs', async () => {
+  it('returns similarly plausible fuzzy matches as a safe ambiguous list', async () => {
     const { service } = create([
       {
         ...locations[0],
-        name: 'Clifton North',
-        normalizedName: 'clifton north',
+        name: 'Qureshi Medical Centre North',
+        normalizedName: 'qureshi medical centre north',
       },
       {
         ...locations[1],
-        name: 'Clifton South',
-        normalizedName: 'clifton south',
+        name: 'Qureshi Medical Centre South',
+        normalizedName: 'qureshi medical centre south',
       },
     ]);
-    await expect(service.resolve(context as never, 'Clifton')).resolves.toEqual(
-      {
-        resolved: false,
-        ambiguous: true,
-        matches: [
-          { key: 'LOC-001', name: 'Clifton North' },
-          { key: 'LOC-002', name: 'Clifton South' },
-        ],
-      },
+    const result = await service.resolve(
+      context as never,
+      'Qureshi Medical Centre Mouth',
     );
+    expect(result).toEqual({
+      resolved: false,
+      ambiguous: true,
+      matches: [
+        { key: 'LOC-002', name: 'Qureshi Medical Centre South' },
+        { key: 'LOC-001', name: 'Qureshi Medical Centre North' },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toMatch(/similarity|database-uuid/);
   });
 
   it('keeps list results compact even when full location details are available', async () => {

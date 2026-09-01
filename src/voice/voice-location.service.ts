@@ -4,6 +4,11 @@ import { PrismaService } from '../database/prisma.service';
 import { VoiceContext } from './context/voice-context';
 
 const MAX_RESULTS = 5;
+const FUZZY_MIN_SIMILARITY = 0.85;
+const FUZZY_MIN_MARGIN = 0.1;
+const SPELLING_EQUIVALENTS: Readonly<Record<string, string>> = {
+  centre: 'center',
+};
 const LIST_QUERY =
   /^(?:what|which|show|list|tell me)?\s*(?:clinic\s+)?(?:locations|branches)(?:\s+(?:do you have|are available|available))?\??$/i;
 
@@ -70,32 +75,59 @@ export class VoiceLocationService {
       };
     }
 
-    const caseInsensitiveExact = locations.filter(
-      (location) =>
-        location.name.toLocaleLowerCase() === query.toLocaleLowerCase(),
+    const canonicalQuery = canonicalize(query);
+    const candidates = locations.map((location) => ({
+      location,
+      canonicalName: canonicalize(location.name),
+    }));
+    const canonicalExact = candidates.filter(
+      (candidate) => candidate.canonicalName === canonicalQuery,
     );
-    if (caseInsensitiveExact.length === 1)
-      return resolved(caseInsensitiveExact[0]);
-
-    const normalizedQuery = normalize(query);
-    const normalizedExact = locations.filter(
-      (location) => location.normalizedName === normalizedQuery,
-    );
-    if (normalizedExact.length === 1) return resolved(normalizedExact[0]);
-
-    const partial = locations.filter((location) => {
-      const name = location.normalizedName;
-      return name.includes(normalizedQuery) || normalizedQuery.includes(name);
-    });
-    if (partial.length === 1) return resolved(partial[0]);
-    if (partial.length > 1) {
+    if (canonicalExact.length === 1)
+      return resolved(canonicalExact[0].location);
+    if (canonicalExact.length > 1) {
       return {
         resolved: false,
         ambiguous: true,
-        matches: partial.slice(0, MAX_RESULTS).map(summaryWithoutTimezone),
+        matches: canonicalExact
+          .slice(0, MAX_RESULTS)
+          .map(({ location }) => summaryWithoutTimezone(location)),
       };
     }
-    return { resolved: false, ambiguous: false, matches: [] };
+
+    const ranked = candidates
+      .map(({ location, canonicalName }) => ({
+        location,
+        similarity: similarity(canonicalQuery, canonicalName),
+      }))
+      .sort(
+        (left, right) =>
+          right.similarity - left.similarity ||
+          left.location.name.localeCompare(right.location.name) ||
+          left.location.locationNumber.localeCompare(
+            right.location.locationNumber,
+          ),
+      );
+    const best = ranked[0];
+    if (!best || best.similarity < FUZZY_MIN_SIMILARITY)
+      return { resolved: false, ambiguous: false, matches: [] };
+
+    const runnerUp = ranked[1];
+    if (!runnerUp || best.similarity - runnerUp.similarity >= FUZZY_MIN_MARGIN)
+      return resolved(best.location);
+
+    const plausible = ranked.filter(
+      (candidate) =>
+        candidate.similarity >= FUZZY_MIN_SIMILARITY &&
+        best.similarity - candidate.similarity < FUZZY_MIN_MARGIN,
+    );
+    return {
+      resolved: false,
+      ambiguous: true,
+      matches: plausible
+        .slice(0, MAX_RESULTS)
+        .map(({ location }) => summaryWithoutTimezone(location)),
+    };
   }
 }
 
@@ -136,11 +168,39 @@ function summaryWithoutTimezone(location: LocationRecord): LocationSummary {
   return { key: location.locationNumber, name: location.name };
 }
 
-function normalize(value: string): string {
-  return value
+function canonicalize(value: string): string {
+  const normalized = value
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLocaleLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
+    .trim()
+    .replace(/\s+/g, ' ');
+  return normalized
+    .split(' ')
+    .map((word) => SPELLING_EQUIVALENTS[word] ?? word)
+    .join(' ');
+}
+
+function similarity(left: string, right: string): number {
+  const longestLength = Math.max(left.length, right.length);
+  if (longestLength === 0) return 1;
+  return 1 - levenshteinDistance(left, right) / longestLength;
+}
+
+function levenshteinDistance(left: string, right: string): number {
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] +
+          (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous = current;
+  }
+  return previous[right.length];
 }

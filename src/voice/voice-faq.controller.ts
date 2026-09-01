@@ -1,11 +1,9 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Headers,
   HttpCode,
   Logger,
-  NotFoundException,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -17,12 +15,10 @@ import {
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../auth/decorators/public.decorator';
-import { WebVoiceChannelResolverService } from '../web-voice/web-voice-channel-resolver.service';
-import { WIDGET_KEY_PATTERN } from '../web-voice/dto/create-web-voice-session.dto';
 import { VoiceServiceAuthGuard } from './auth/voice-service-auth.guard';
 import { VoiceFaqSearchDto } from './dto/voice-faq-search.dto';
 import { VoiceFaqService, VoiceFaqSearchResponse } from './voice-faq.service';
-import { VoiceSelectedLocationService } from './voice-selected-location.service';
+import { VoiceToolSessionService } from './voice-tool-session.service';
 
 @ApiTags('voice tools')
 @ApiBearerAuth('voice-service')
@@ -33,42 +29,35 @@ export class VoiceFaqController {
   private readonly logger = new Logger(VoiceFaqController.name);
 
   constructor(
-    private readonly resolver: WebVoiceChannelResolverService,
     private readonly voiceFaqs: VoiceFaqService,
-    private readonly selectedLocations: VoiceSelectedLocationService,
+    private readonly toolSessions: VoiceToolSessionService,
   ) {}
 
   @Post('faq-search')
   @HttpCode(200)
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @ApiHeader({ name: 'X-Voice-Widget-Key', required: true })
+  @ApiHeader({ name: 'X-Voice-Session-Token', required: true })
   @ApiHeader({ name: 'X-Voice-Selected-Location-Key', required: false })
   @ApiOkResponse({ description: 'Up to three approved FAQ matches.' })
   async search(
     @Headers('x-voice-widget-key') widgetKey: string | undefined,
     @Headers('x-voice-selected-location-key')
     selectedLocationKey: string | undefined,
+    @Headers('x-voice-session-token') sessionToken: string | undefined,
     @Body() dto: VoiceFaqSearchDto,
   ): Promise<VoiceFaqSearchResponse> {
     const startedAt = Date.now();
-    if (!widgetKey || !WIDGET_KEY_PATTERN.test(widgetKey)) {
-      throw new BadRequestException(
-        'X-Voice-Widget-Key is required and must be valid.',
-      );
-    }
-    const context = await this.resolver.resolve(widgetKey);
-    if (!context)
-      throw new NotFoundException('Web voice channel is unavailable.');
-
     const normalizedSelectedLocationKey = selectedLocationKey?.trim();
-    const selectedLocationId = normalizedSelectedLocationKey
-      ? await this.selectedLocations.resolve(
-          context.tenantId,
-          normalizedSelectedLocationKey,
-        )
-      : undefined;
-    const effectiveLocationId = selectedLocationId ?? context.locationId;
-    const locationSource = selectedLocationId ? 'selected' : 'default';
+    const { context, session } = await this.toolSessions.resolve(
+      sessionToken,
+      widgetKey,
+      selectedLocationKey,
+    );
+    const effectiveLocationId = session.selectedLocationId ?? undefined;
+    const locationSource = normalizedSelectedLocationKey
+      ? 'selected'
+      : 'session';
 
     try {
       const result = await this.voiceFaqs.search(

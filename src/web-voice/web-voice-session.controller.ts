@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Header, HttpCode, Post } from '@nestjs/common';
 import {
   ApiBadGatewayResponse,
   ApiNotFoundResponse,
@@ -21,6 +21,7 @@ export class WebVoiceSessionController {
 
   @Post('session')
   @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({
     summary: 'Create an anonymous, short-lived ElevenLabs web conversation URL',
@@ -29,6 +30,7 @@ export class WebVoiceSessionController {
     schema: {
       example: {
         signedUrl: 'wss://api.elevenlabs.io/...',
+        voiceSessionToken: '<43-character base64url credential>',
         context: {
           tenantName: 'Sunshine Medical',
           locationName: 'Downtown Clinic',

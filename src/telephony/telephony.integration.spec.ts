@@ -29,7 +29,9 @@ describeDatabase('TelephonyNumber database uniqueness', () => {
     await prisma.telephonyNumber.deleteMany({
       where: { tenantId: { in: [tenantA, tenantB] } },
     });
-    await prisma.tenant.deleteMany({ where: { id: { in: [tenantA, tenantB] } } });
+    await prisma.tenant.deleteMany({
+      where: { id: { in: [tenantA, tenantB] } },
+    });
     await prisma.$disconnect();
   });
 
@@ -44,8 +46,12 @@ describeDatabase('TelephonyNumber database uniqueness', () => {
         provider: TelephonyProvider.TWILIO,
       }),
     ]);
-    expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
-    expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(1);
+    expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(
+      1,
+    );
+    expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(
+      1,
+    );
     await expect(
       prisma.telephonyNumber.count({ where: { phoneNumber } }),
     ).resolves.toBe(1);
