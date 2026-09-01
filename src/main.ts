@@ -43,6 +43,16 @@ async function bootstrap(): Promise<void> {
       .setDescription('API documentation for the backend foundation')
       .setVersion('1.0')
       .addBearerAuth()
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'Voice service API key',
+          description:
+            'Dedicated machine credential for Voice Gateway requests. This is not a clinic-user JWT.',
+        },
+        'voice-service',
+      )
       .addApiKey(
         {
           type: 'apiKey',

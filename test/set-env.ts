@@ -6,4 +6,6 @@ process.env.CORS_ORIGIN = 'http://localhost:3001';
 process.env.JWT_ACCESS_SECRET = 'access-secret-at-least-thirty-two-characters';
 process.env.JWT_REFRESH_SECRET =
   'refresh-secret-at-least-thirty-two-characters';
+process.env.VOICE_GATEWAY_API_KEY =
+  'voice-gateway-test-key-at-least-32-characters';
 process.env.FRONTEND_URL = 'http://localhost:3001';

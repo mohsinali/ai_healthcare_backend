@@ -15,6 +15,18 @@ export const environmentValidationSchema = Joi.object({
   CORS_ORIGIN: Joi.string().min(1).required(),
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),
+  VOICE_GATEWAY_API_KEY: Joi.string().min(32).required(),
+  ELEVENLABS_API_KEY: Joi.string().empty('').min(1).optional(),
+  ELEVENLABS_AGENT_ID: Joi.string().empty('').min(1).optional(),
+  REDIS_HOST: Joi.string().hostname().default('127.0.0.1'),
+  REDIS_PORT: Joi.number().port().default(6379),
+  REDIS_PASSWORD: Joi.string().allow('').default(''),
+  REDIS_DB: Joi.number().integer().min(0).max(15).default(0),
+  VOICE_SESSION_TTL_SECONDS: Joi.number()
+    .integer()
+    .min(60)
+    .max(86400)
+    .default(1800),
   JWT_ACCESS_TTL: Joi.string().default('15m'),
   JWT_REFRESH_TTL: Joi.string().default('14d'),
   AUTH_REFRESH_COOKIE_NAME: Joi.string().default('aiva_refresh'),
@@ -49,10 +61,28 @@ export const environmentValidationSchema = Joi.object({
         message: 'AUTH_COOKIE_SECURE must be true in production',
       });
     }
+    if (
+      environment.NODE_ENV === 'production' &&
+      (typeof environment.REDIS_PASSWORD !== 'string' ||
+        !environment.REDIS_PASSWORD.trim())
+    ) {
+      return helpers.error('any.custom', {
+        message: 'REDIS_PASSWORD must not be empty in production',
+      });
+    }
     if (environment.AUTH_COOKIE_SAME_SITE === 'none') {
       return helpers.error('any.custom', {
         message:
           'AUTH_COOKIE_SAME_SITE=none requires CSRF protection that is not enabled',
+      });
+    }
+    if (
+      environment.VOICE_GATEWAY_API_KEY === environment.JWT_ACCESS_SECRET ||
+      environment.VOICE_GATEWAY_API_KEY === environment.JWT_REFRESH_SECRET
+    ) {
+      return helpers.error('any.custom', {
+        message:
+          'VOICE_GATEWAY_API_KEY must be different from JWT_ACCESS_SECRET and JWT_REFRESH_SECRET',
       });
     }
 

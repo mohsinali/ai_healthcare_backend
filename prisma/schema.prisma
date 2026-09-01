@@ -121,6 +121,11 @@ enum TelephonyNumberStatus {
   INACTIVE
 }
 
+enum WebVoiceChannelStatus {
+  ACTIVE
+  INACTIVE
+}
+
 model User {
   id                    String               @id @default(uuid()) @db.Uuid
   email                 String               @unique
@@ -159,6 +164,7 @@ model Tenant {
   sequences         Sequence[]
   faqs              FAQ[]
   telephonyNumbers  TelephonyNumber[]
+  webVoiceChannels  WebVoiceChannel[]
 
   @@index([status])
   @@index([name])
@@ -224,6 +230,7 @@ model Location {
   appointments          Appointment[]
   faqs                  FAQ[]
   telephonyNumbers      TelephonyNumber[]
+  webVoiceChannels      WebVoiceChannel[]
 
   @@unique([tenantId, normalizedName])
   @@unique([tenantId, id])
@@ -249,6 +256,24 @@ model TelephonyNumber {
   @@index([tenantId, status])
   @@index([tenantId, locationId])
   @@index([provider, providerPhoneNumberId])
+}
+
+model WebVoiceChannel {
+  id              String                @id @default(uuid()) @db.Uuid
+  tenantId        String                @db.Uuid
+  locationId      String?               @db.Uuid
+  publicWidgetKey String                @unique
+  agentId         String?
+  status          WebVoiceChannelStatus @default(ACTIVE)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  location        Location?             @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, locationId])
 }
 
 model BusinessHour {

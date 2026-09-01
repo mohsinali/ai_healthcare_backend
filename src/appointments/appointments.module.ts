@@ -6,10 +6,12 @@ import {
   SchedulingController,
 } from './appointments.controller';
 import { AppointmentsService } from './appointments.service';
+import { AvailabilitySearchService } from './availability-search.service';
 
 @Module({
   imports: [DatabaseModule, SequencesModule],
   controllers: [AppointmentsController, SchedulingController],
-  providers: [AppointmentsService],
+  providers: [AppointmentsService, AvailabilitySearchService],
+  exports: [AvailabilitySearchService],
 })
 export class AppointmentsModule {}

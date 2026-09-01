@@ -2,6 +2,7 @@ import { ServiceUnavailableException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../database/prisma.service';
 import { HealthController } from './health.controller';
+import { RedisService } from '../redis/redis.service';
 
 describe('HealthController', () => {
   let controller: HealthController;
@@ -16,6 +17,7 @@ describe('HealthController', () => {
           provide: PrismaService,
           useValue: { $queryRaw: queryRaw },
         },
+        { provide: RedisService, useValue: { ping: jest.fn() } },
       ],
     }).compile();
 

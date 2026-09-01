@@ -16,6 +16,9 @@ import { SettingsModule } from './settings/settings.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { FaqsModule } from './faqs/faqs.module';
 import { TelephonyModule } from './telephony/telephony.module';
+import { VoiceModule } from './voice/voice.module';
+import { WebVoiceModule } from './web-voice/web-voice.module';
+import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
@@ -28,6 +31,7 @@ import { TelephonyModule } from './telephony/telephony.module';
       validationOptions: { abortEarly: false },
     }),
     DatabaseModule,
+    RedisModule,
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     AuthModule,
     TenantsModule,
@@ -37,6 +41,8 @@ import { TelephonyModule } from './telephony/telephony.module';
     AppointmentsModule,
     FaqsModule,
     TelephonyModule,
+    VoiceModule,
+    WebVoiceModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

@@ -8,10 +8,8 @@ import { PatientStatus, Prisma, SequenceType } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { SequenceService } from '../sequences/sequence.service';
 import {
-  normalizedName,
   optionalEmail,
   optionalText,
-  phone,
 } from '../clinic-config/clinic-config.helpers';
 import { TrustedTenantContext } from '../tenants/types/tenant-context';
 import { FieldValidationException } from '../common/validation/field-validation.exception';
@@ -21,6 +19,11 @@ import {
   ListPatientsDto,
   UpdatePatientDto,
 } from './dto/patient.dto';
+import {
+  normalizePatientName,
+  normalizePatientPhone,
+  parsePatientDateOfBirth,
+} from './patient-normalization';
 @Injectable()
 export class PatientsService {
   constructor(
@@ -28,23 +31,7 @@ export class PatientsService {
     private readonly sequences: SequenceService,
   ) {}
   private dob(value: string) {
-    const date = new Date(`${value}T00:00:00.000Z`);
-    if (
-      Number.isNaN(date.valueOf()) ||
-      date.toISOString().slice(0, 10) !== value
-    )
-      throw new FieldValidationException([
-        { field: 'dateOfBirth', message: 'Enter a valid date of birth.' },
-      ]);
-    const today = new Date().toISOString().slice(0, 10);
-    if (value > today)
-      throw new FieldValidationException([
-        {
-          field: 'dateOfBirth',
-          message: 'Date of birth cannot be in the future.',
-        },
-      ]);
-    return date;
+    return parsePatientDateOfBirth(value);
   }
   private data(
     dto: PatientInput,
@@ -65,7 +52,10 @@ export class PatientsService {
     const lastName = required(dto.lastName, 'Last name');
     let normalizedPhone: string | null | undefined;
     try {
-      normalizedPhone = phone(dto.phone, dto.phone !== undefined || !partial);
+      normalizedPhone =
+        dto.phone === undefined && partial
+          ? undefined
+          : normalizePatientPhone(dto.phone!, 'phone');
     } catch (error) {
       if (error instanceof BadRequestException)
         throw new FieldValidationException([
@@ -79,12 +69,12 @@ export class PatientsService {
     return {
       firstName,
       ...(firstName !== undefined
-        ? { normalizedFirstName: normalizedName(firstName) }
+        ? { normalizedFirstName: normalizePatientName(firstName) }
         : {}),
       middleName: optionalText(dto.middleName),
       lastName,
       ...(lastName !== undefined
-        ? { normalizedLastName: normalizedName(lastName) }
+        ? { normalizedLastName: normalizePatientName(lastName) }
         : {}),
       dateOfBirth:
         dto.dateOfBirth === undefined ? undefined : this.dob(dto.dateOfBirth),
@@ -154,7 +144,7 @@ export class PatientsService {
   ) {
     let normalizedPhone: string;
     try {
-      normalizedPhone = phone(dto.phone, true)!;
+      normalizedPhone = normalizePatientPhone(dto.phone, 'phone');
     } catch (error) {
       if (error instanceof BadRequestException)
         throw new FieldValidationException([
@@ -172,8 +162,8 @@ export class PatientsService {
         OR: [
           { phone: normalizedPhone },
           {
-            normalizedFirstName: normalizedName(dto.firstName),
-            normalizedLastName: normalizedName(dto.lastName),
+            normalizedFirstName: normalizePatientName(dto.firstName),
+            normalizedLastName: normalizePatientName(dto.lastName),
             dateOfBirth: this.dob(dto.dateOfBirth),
           },
         ],
