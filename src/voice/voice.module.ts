@@ -19,6 +19,7 @@ import { VoiceSessionModule } from '../voice-session/voice-session.module';
 import { VoiceToolSessionService } from './voice-tool-session.service';
 import { VoicePatientVerificationController } from './voice-patient-verification.controller';
 import { VoicePatientVerificationService } from './voice-patient-verification.service';
+import { VoiceAppointmentBookingService } from './voice-appointment-booking.service';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { VoicePatientVerificationService } from './voice-patient-verification.se
     VoiceServiceAuthGuard,
     VoiceToolSessionService,
     VoicePatientVerificationService,
+    VoiceAppointmentBookingService,
   ],
   exports: [VoiceBootstrapService, VoicePatientVerificationService],
 })

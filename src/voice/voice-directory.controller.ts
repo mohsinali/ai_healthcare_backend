@@ -18,6 +18,11 @@ import { VoiceServiceAuthGuard } from './auth/voice-service-auth.guard';
 import { VoiceProviderSearchDto } from './dto/voice-provider-search.dto';
 import { VoiceServiceSearchDto } from './dto/voice-service-search.dto';
 import { VoiceAvailabilitySearchDto } from './dto/voice-availability-search.dto';
+import { VoiceBookAppointmentDto } from './dto/voice-book-appointment.dto';
+import {
+  VoiceAppointmentBookingService,
+  VoiceBookingResponse,
+} from './voice-appointment-booking.service';
 import {
   VoiceAvailabilityResponse,
   VoiceAvailabilityService,
@@ -39,6 +44,7 @@ export class VoiceDirectoryController {
     private readonly directory: VoiceDirectoryService,
     private readonly toolSessions: VoiceToolSessionService,
     private readonly availability: VoiceAvailabilityService,
+    private readonly booking: VoiceAppointmentBookingService,
   ) {}
 
   @Post('search-services')
@@ -109,5 +115,26 @@ export class VoiceDirectoryController {
     );
     const locationId = session.selectedLocationId ?? undefined;
     return this.availability.search(context, dto, locationId);
+  }
+
+  @Post('book-appointment')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiHeader({ name: 'X-Voice-Widget-Key', required: true })
+  @ApiHeader({ name: 'X-Voice-Selected-Location-Key', required: false })
+  @ApiHeader({ name: 'X-Voice-Session-Token', required: true })
+  @ApiOkResponse({ description: 'Voice-safe appointment booking outcome.' })
+  async bookAppointment(
+    @Headers('x-voice-widget-key') widgetKey: string | undefined,
+    @Headers('x-voice-selected-location-key') selectedKey: string | undefined,
+    @Headers('x-voice-session-token') sessionToken: string | undefined,
+    @Body() dto: VoiceBookAppointmentDto,
+  ): Promise<VoiceBookingResponse> {
+    const resolved = await this.toolSessions.resolve(
+      sessionToken,
+      widgetKey,
+      selectedKey,
+    );
+    return this.booking.book(resolved, dto);
   }
 }
