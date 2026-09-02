@@ -14,7 +14,11 @@ describe('transactional clinic configuration edits', () => {
   it('updates a provider and both assignment sets in one transaction', async () => {
     const tx = {
       provider: { update: jest.fn() },
-      providerLocation: { deleteMany: jest.fn(), createMany: jest.fn() },
+      providerLocation: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn(),
+        createMany: jest.fn(),
+      },
       providerService: { deleteMany: jest.fn(), createMany: jest.fn() },
     };
     const prisma = {
@@ -73,7 +77,15 @@ describe('transactional clinic configuration edits', () => {
 
   it('updates a location, hours, and services in one transaction', async () => {
     const tx = {
-      location: { update: jest.fn() },
+      $executeRaw: jest.fn(),
+      location: {
+        update: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue({
+          status: 'ACTIVE',
+          businessHours: [],
+        }),
+      },
+      providerWorkingPeriod: { findMany: jest.fn().mockResolvedValue([]) },
       businessHour: { update: jest.fn() },
       locationService: { deleteMany: jest.fn(), createMany: jest.fn() },
     };

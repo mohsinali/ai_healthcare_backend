@@ -4,7 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DayOfWeek, Prisma, SequenceType } from '@prisma/client';
+import {
+  ConfigurationStatus,
+  DayOfWeek,
+  Prisma,
+  SequenceType,
+} from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { SequenceService } from '../sequences/sequence.service';
 import { FieldValidationException } from '../common/validation/field-validation.exception';
@@ -25,6 +30,12 @@ import {
   optionalText,
   phone,
 } from './clinic-config.helpers';
+import {
+  findPeriodsOutsideLocationHours,
+  lockLocationSchedule,
+  scheduleConflictCodes,
+  ScheduleInvariantException,
+} from './scheduling-invariants';
 
 const days = Object.values(DayOfWeek);
 const locationInclude = {
@@ -54,6 +65,7 @@ export class LocationsService {
           data: { ...data, tenantId: ctx.tenantId, locationNumber },
           select: { id: true },
         });
+        await lockLocationSchedule(tx, ctx.tenantId, location.id);
         await tx.businessHour.createMany({
           data: days.map((day) => {
             const isClosed =
@@ -133,10 +145,27 @@ export class LocationsService {
   async update(ctx: TenantContext, id: string, dto: UpdateLocationDto) {
     await this.get(ctx, id);
     try {
-      return await this.prisma.location.update({
-        where: { id },
-        data: this.data(dto, false),
-        include: locationInclude,
+      return await this.prisma.$transaction(async (tx) => {
+        if (dto.status !== undefined) {
+          await lockLocationSchedule(tx, ctx.tenantId, id);
+          const current = await this.locationScheduleState(
+            tx,
+            ctx.tenantId,
+            id,
+          );
+          await this.assertPeriodsFitHours(
+            tx,
+            ctx.tenantId,
+            id,
+            current.businessHours,
+            dto.status,
+          );
+        }
+        return tx.location.update({
+          where: { id },
+          data: this.data(dto, false),
+          include: locationInclude,
+        });
       });
     } catch (error) {
       this.unique(error);
@@ -154,6 +183,15 @@ export class LocationsService {
     const { businessHours, serviceIds, ...location } = dto;
     try {
       await this.prisma.$transaction(async (tx) => {
+        await lockLocationSchedule(tx, ctx.tenantId, id);
+        const current = await this.locationScheduleState(tx, ctx.tenantId, id);
+        await this.assertPeriodsFitHours(
+          tx,
+          ctx.tenantId,
+          id,
+          businessHours,
+          dto.status ?? current.status,
+        );
         await tx.location.update({
           where: { id },
           data: this.data(location, false),
@@ -203,9 +241,18 @@ export class LocationsService {
   ) {
     await this.get(ctx, id);
     this.validateHours(dto.hours);
-    await this.prisma.$transaction(
-      dto.hours.map((hour) =>
-        this.prisma.businessHour.update({
+    await this.prisma.$transaction(async (tx) => {
+      await lockLocationSchedule(tx, ctx.tenantId, id);
+      const current = await this.locationScheduleState(tx, ctx.tenantId, id);
+      await this.assertPeriodsFitHours(
+        tx,
+        ctx.tenantId,
+        id,
+        dto.hours,
+        current.status,
+      );
+      for (const hour of dto.hours)
+        await tx.businessHour.update({
           where: {
             locationId_dayOfWeek: { locationId: id, dayOfWeek: hour.dayOfWeek },
           },
@@ -214,9 +261,8 @@ export class LocationsService {
             openTime: hour.isClosed ? null : hour.openTime,
             closeTime: hour.isClosed ? null : hour.closeTime,
           },
-        }),
-      ),
-    );
+        });
+    });
     return this.businessHours(ctx, id);
   }
   private validateHours(hours: BusinessHourDto[]) {
@@ -241,6 +287,85 @@ export class LocationsService {
           `${hour.dayOfWeek}: opening time must be before closing time.`,
         );
     });
+  }
+  private async locationScheduleState(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    locationId: string,
+  ) {
+    const location = await tx.location.findFirst({
+      where: { id: locationId, tenantId },
+      select: {
+        status: true,
+        businessHours: {
+          select: {
+            dayOfWeek: true,
+            isClosed: true,
+            openTime: true,
+            closeTime: true,
+          },
+        },
+      },
+    });
+    if (!location) throw new NotFoundException('Location not found.');
+    return location;
+  }
+  private async assertPeriodsFitHours(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    locationId: string,
+    hours: BusinessHourDto[],
+    status: ConfigurationStatus,
+  ) {
+    const periods = await tx.providerWorkingPeriod.findMany({
+      where: { tenantId, locationId, isActive: true },
+      select: {
+        providerId: true,
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+        isActive: true,
+        providerLocation: {
+          select: {
+            provider: {
+              select: {
+                displayName: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    const conflicts = periods.flatMap((period) => {
+      const provider = period.providerLocation.provider;
+      const workingPeriod = {
+        providerId: period.providerId,
+        dayOfWeek: period.dayOfWeek,
+        startTime: period.startTime,
+        endTime: period.endTime,
+        isActive: period.isActive,
+      };
+      return findPeriodsOutsideLocationHours(
+        [workingPeriod],
+        hours,
+        locationId,
+        status,
+        scheduleConflictCodes.locationHours,
+        {
+          id: period.providerId,
+          name:
+            provider.displayName ??
+            `${provider.firstName} ${provider.lastName}`.trim(),
+        },
+      );
+    });
+    if (conflicts.length)
+      throw new ScheduleInvariantException(
+        scheduleConflictCodes.locationHours,
+        conflicts,
+      );
   }
   async services(ctx: TenantContext, id: string) {
     await this.get(ctx, id);

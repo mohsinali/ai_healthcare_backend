@@ -23,6 +23,7 @@ import {
   EditServiceDto,
   ListConfigurationDto,
   ReplaceAssignmentsDto,
+  ReplaceProviderWorkingPeriodsDto,
   UpdateBusinessHoursDto,
   UpdateLocationDto,
   UpdateProviderDto,
@@ -161,6 +162,22 @@ export class ProvidersController extends ClinicController {
     @Body() d: ReplaceAssignmentsDto,
   ) {
     return this.service.replaceLocations(c, id, d);
+  }
+  @Get(':id/working-periods') @TenantRoles(...READ) workingPeriods(
+    @CurrentTenant() c: TenantContext,
+    @Param('id') id: string,
+  ) {
+    return this.service.workingPeriods(c, id);
+  }
+  @Put(':id/locations/:locationId/working-periods')
+  @TenantRoles(...WRITE)
+  replaceWorkingPeriods(
+    @CurrentTenant() c: TenantContext,
+    @Param('id') id: string,
+    @Param('locationId') locationId: string,
+    @Body() d: ReplaceProviderWorkingPeriodsDto,
+  ) {
+    return this.service.replaceWorkingPeriods(c, id, locationId, d);
   }
   @Get(':id/services') @TenantRoles(...READ) services(
     @CurrentTenant() c: TenantContext,

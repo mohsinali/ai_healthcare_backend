@@ -3,6 +3,7 @@ import { ConfigurationStatus, DayOfWeek } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
+  ArrayMaxSize,
   ArrayUnique,
   IsArray,
   IsBoolean,
@@ -135,4 +136,32 @@ export class EditServiceDto extends UpdateServiceDto {
 
 export class ReplaceAssignmentsDto {
   @IsArray() @ArrayUnique() @IsUUID('4', { each: true }) ids!: string[];
+}
+
+export class ProviderWorkingPeriodDto {
+  @ApiProperty({ enum: DayOfWeek })
+  @IsEnum(DayOfWeek)
+  dayOfWeek!: DayOfWeek;
+
+  @ApiProperty({ example: '09:00' })
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  startTime!: string;
+
+  @ApiProperty({ example: '17:00' })
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  endTime!: string;
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean = true;
+}
+
+export class ReplaceProviderWorkingPeriodsDto {
+  @ApiProperty({ type: [ProviderWorkingPeriodDto], maxItems: 100 })
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => ProviderWorkingPeriodDto)
+  periods!: ProviderWorkingPeriodDto[];
 }

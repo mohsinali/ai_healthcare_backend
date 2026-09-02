@@ -24,6 +24,15 @@ import {
   RescheduleAppointmentDto,
   UpdateAppointmentDto,
 } from './dto/appointment.dto';
+import { usableAvailabilityWindows } from './availability-windows';
+import { AVAILABILITY_BLOCKING_STATUSES } from './availability-search.service';
+import {
+  appointmentSchedulingCodes,
+  AppointmentSchedulingException,
+  lockAppointmentRecord,
+  lockProviderAppointmentSchedules,
+} from './appointment-scheduling';
+import { lockLocationSchedule } from '../clinic-config/scheduling-invariants';
 
 export const APPOINTMENT_SLOT_INTERVAL_MINUTES = 15;
 const CONFLICT_MESSAGE =
@@ -107,7 +116,27 @@ export class AppointmentsService {
     const hours = config.location.businessHours.find(
       (h) => h.dayOfWeek === dayNames[day.weekday],
     );
-    if (!hours || hours.isClosed || !hours.openTime || !hours.closeTime)
+    const periods = await this.prisma.providerWorkingPeriod.findMany({
+      where: {
+        tenantId: c.tenantId,
+        providerId: dto.providerId,
+        locationId: dto.locationId,
+        dayOfWeek: dayNames[day.weekday],
+        isActive: true,
+      },
+      select: {
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+        isActive: true,
+      },
+    });
+    const windows = usableAvailabilityWindows(
+      dayNames[day.weekday],
+      periods,
+      hours,
+    );
+    if (!windows.length)
       return {
         date: dto.date,
         timezone: config.location.timezone,
@@ -115,46 +144,49 @@ export class AppointmentsService {
         slotIntervalMinutes: APPOINTMENT_SLOT_INTERVAL_MINUTES,
         slots: [],
       };
-    const open = this.wallTime(
-      dto.date,
-      hours.openTime,
-      config.location.timezone,
-      false,
-    );
-    const close = this.wallTime(
-      dto.date,
-      hours.closeTime,
-      config.location.timezone,
-      false,
-    );
+    const queryStart = day.startOf('day').toUTC();
+    const queryEnd = day.plus({ days: 1 }).startOf('day').toUTC();
     const appointments = await this.prisma.appointment.findMany({
       where: {
         tenantId: c.tenantId,
         providerId: dto.providerId,
-        status: { not: 'CANCELLED' },
-        startAt: { lt: close.toJSDate() },
-        endAt: { gt: open.toJSDate() },
+        status: { in: AVAILABILITY_BLOCKING_STATUSES },
+        startAt: { lt: queryEnd.toJSDate() },
+        endAt: { gt: queryStart.toJSDate() },
       },
       select: { startAt: true, endAt: true },
     });
     const slots: { start: string; end: string }[] = [];
-    for (
-      let cursor = open;
-      cursor.plus({ minutes: config.service.durationMinutes }).toMillis() <=
-      close.toMillis();
-      cursor = cursor.plus({ minutes: APPOINTMENT_SLOT_INTERVAL_MINUTES })
-    ) {
-      // Ambiguous fallback wall times are omitted; explicit offset-aware booking remains supported.
-      if (cursor.getPossibleOffsets().length > 1) continue;
-      const end = cursor.plus({ minutes: config.service.durationMinutes });
-      if (
-        !appointments.some(
-          (a) =>
-            cursor.toMillis() < a.endAt.valueOf() &&
-            end.toMillis() > a.startAt.valueOf(),
+    for (const window of windows) {
+      const open = this.availabilityWallTime(
+        dto.date,
+        window.startTime,
+        config.location.timezone,
+      );
+      const close = this.availabilityWallTime(
+        dto.date,
+        window.endTime,
+        config.location.timezone,
+      );
+      if (!open || !close) continue;
+      for (
+        let cursor = open;
+        cursor.plus({ minutes: config.service.durationMinutes }).toMillis() <=
+        close.toMillis();
+        cursor = cursor.plus({ minutes: APPOINTMENT_SLOT_INTERVAL_MINUTES })
+      ) {
+        // Ambiguous fallback wall times are omitted; explicit offset-aware booking remains supported.
+        if (cursor.getPossibleOffsets().length > 1) continue;
+        const end = cursor.plus({ minutes: config.service.durationMinutes });
+        if (
+          !appointments.some(
+            (a) =>
+              cursor.toMillis() < a.endAt.valueOf() &&
+              end.toMillis() > a.startAt.valueOf(),
+          )
         )
-      )
-        slots.push({ start: cursor.toISO(), end: end.toISO() });
+          slots.push({ start: cursor.toISO(), end: end.toISO() });
+      }
     }
     return {
       date: dto.date,
@@ -172,6 +204,10 @@ export class AppointmentsService {
   ) {
     const id = await this.prisma.$transaction(
       async (tx) => {
+        await lockLocationSchedule(tx, c.tenantId, dto.locationId);
+        await lockProviderAppointmentSchedules(tx, c.tenantId, [
+          dto.providerId,
+        ]);
         const config = await this.configuration(
           tx,
           c.tenantId,
@@ -185,15 +221,19 @@ export class AppointmentsService {
           config.location.timezone,
           config.service.durationMinutes,
         );
-        await this.lock(tx, c.tenantId, dto.providerId, range.localDate);
-        this.validateHours(
+        await this.validateSchedulingWindow(
+          tx,
+          c.tenantId,
+          dto.locationId,
+          dto.providerId,
           config.location.businessHours,
-          range,
           config.location.timezone,
+          range,
         );
         await this.ensureNoConflict(
           tx,
           c.tenantId,
+          dto.locationId,
           dto.providerId,
           range.start,
           range.end,
@@ -240,6 +280,10 @@ export class AppointmentsService {
   }) {
     return this.prisma.$transaction(
       async (tx) => {
+        await lockLocationSchedule(tx, input.tenantId, input.locationId);
+        await lockProviderAppointmentSchedules(tx, input.tenantId, [
+          input.providerId,
+        ]);
         const config = await this.configuration(
           tx,
           input.tenantId,
@@ -269,11 +313,14 @@ export class AppointmentsService {
             'Appointment time must be in the future.',
           );
 
-        await this.lock(tx, input.tenantId, input.providerId, range.localDate);
-        this.validateHours(
+        await this.validateSchedulingWindow(
+          tx,
+          input.tenantId,
+          input.locationId,
+          input.providerId,
           config.location.businessHours,
-          range,
           config.location.timezone,
+          range,
         );
 
         const duplicate = await tx.appointment.findFirst({
@@ -301,6 +348,7 @@ export class AppointmentsService {
         await this.ensureNoConflict(
           tx,
           input.tenantId,
+          input.locationId,
           input.providerId,
           range.start,
           range.end,
@@ -440,6 +488,7 @@ export class AppointmentsService {
     dto: RescheduleAppointmentDto,
   ) {
     await this.prisma.$transaction(async (tx) => {
+      await lockAppointmentRecord(tx, c.tenantId, id);
       const current = await tx.appointment.findFirst({
         where: { id, tenantId: c.tenantId },
       });
@@ -453,6 +502,11 @@ export class AppointmentsService {
           'This appointment can no longer be rescheduled.',
         );
       const providerId = dto.providerId ?? current.providerId;
+      await lockLocationSchedule(tx, c.tenantId, current.locationId);
+      await lockProviderAppointmentSchedules(tx, c.tenantId, [
+        current.providerId,
+        providerId,
+      ]);
       const config = await this.configuration(
         tx,
         c.tenantId,
@@ -466,24 +520,19 @@ export class AppointmentsService {
         config.location.timezone,
         config.service.durationMinutes,
       );
-      const lockDates = [
-        ...new Set([
-          DateTime.fromJSDate(current.startAt)
-            .setZone(config.location.timezone)
-            .toISODate()!,
-          range.localDate,
-        ]),
-      ].sort();
-      for (const date of lockDates)
-        await this.lock(tx, c.tenantId, providerId, date);
-      this.validateHours(
+      await this.validateSchedulingWindow(
+        tx,
+        c.tenantId,
+        current.locationId,
+        providerId,
         config.location.businessHours,
-        range,
         config.location.timezone,
+        range,
       );
       await this.ensureNoConflict(
         tx,
         c.tenantId,
+        current.locationId,
         providerId,
         range.start,
         range.end,
@@ -522,6 +571,7 @@ export class AppointmentsService {
     dto: { reason?: string | null },
   ) {
     await this.prisma.$transaction(async (tx) => {
+      await lockAppointmentRecord(tx, c.tenantId, id);
       const current = await tx.appointment.findFirst({
         where: { id, tenantId: c.tenantId },
       });
@@ -531,6 +581,9 @@ export class AppointmentsService {
         throw new ConflictException(
           'This appointment can no longer be cancelled.',
         );
+      await lockProviderAppointmentSchedules(tx, c.tenantId, [
+        current.providerId,
+      ]);
       await tx.appointment.update({
         where: { tenantId_id: { tenantId: c.tenantId, id } },
         data: {
@@ -555,6 +608,7 @@ export class AppointmentsService {
 
   async confirm(c: TrustedTenantContext, userId: string, id: string) {
     await this.prisma.$transaction(async (tx) => {
+      await lockAppointmentRecord(tx, c.tenantId, id);
       const current = await tx.appointment.findFirst({
         where: { id, tenantId: c.tenantId },
       });
@@ -682,6 +736,85 @@ export class AppointmentsService {
       );
   }
 
+  private async validateSchedulingWindow(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    locationId: string,
+    providerId: string,
+    hours: {
+      dayOfWeek: DayOfWeek;
+      isClosed: boolean;
+      openTime: string | null;
+      closeTime: string | null;
+    }[],
+    zone: string,
+    range: { start: Date; end: Date; localDate: string },
+  ) {
+    const details = {
+      providerId,
+      locationId,
+      requestedStart: range.start.toISOString(),
+      requestedEnd: range.end.toISOString(),
+    };
+    try {
+      this.validateHours(hours, range, zone);
+    } catch (error) {
+      if (error instanceof BadRequestException)
+        throw new AppointmentSchedulingException(
+          appointmentSchedulingCodes.outsideLocationHours,
+          details,
+          'Appointment must fit within Location Business Hours.',
+        );
+      throw error;
+    }
+
+    const day = this.localDay(range.localDate, zone);
+    const dayOfWeek = dayNames[day.weekday];
+    const periods = await tx.providerWorkingPeriod.findMany({
+      where: {
+        tenantId,
+        providerId,
+        locationId,
+        dayOfWeek,
+        isActive: true,
+      },
+      select: {
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+        isActive: true,
+      },
+    });
+    if (!periods.length)
+      throw new AppointmentSchedulingException(
+        appointmentSchedulingCodes.providerNotScheduled,
+        details,
+        'Provider has no active working period at this time.',
+      );
+
+    const operatingHours = hours.find((value) => value.dayOfWeek === dayOfWeek);
+    const windows = usableAvailabilityWindows(
+      dayOfWeek,
+      periods,
+      operatingHours,
+    );
+    const contained = windows.some((window) => {
+      const start = this.wallTime(range.localDate, window.startTime, zone, true)
+        .toUTC()
+        .toMillis();
+      const end = this.wallTime(range.localDate, window.endTime, zone, true)
+        .toUTC()
+        .toMillis();
+      return range.start.valueOf() >= start && range.end.valueOf() <= end;
+    });
+    if (!contained)
+      throw new AppointmentSchedulingException(
+        appointmentSchedulingCodes.outsideProviderSchedule,
+        details,
+        'Appointment must fit within the Provider working schedule.',
+      );
+  }
+
   private localDay(date: string, zone: string) {
     const value = DateTime.fromISO(date, { zone });
     if (!value.isValid || value.toISODate() !== date)
@@ -707,22 +840,19 @@ export class AppointmentsService {
     return value;
   }
 
-  private async lock(
-    tx: Prisma.TransactionClient,
-    tenantId: string,
-    providerId: string,
-    localDate: string,
-  ) {
-    // pg_advisory_xact_lock returns PostgreSQL `void`. Using $queryRaw makes
-    // Prisma try to deserialize that unsupported result type (P2010). Execute
-    // it without returning rows; the lock is still blocking and is released
-    // automatically when this transaction ends.
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${tenantId}:${providerId}:${localDate}`}, 0::bigint))`;
+  private availabilityWallTime(date: string, time: string, zone: string) {
+    try {
+      return this.wallTime(date, time, zone, false);
+    } catch (error) {
+      if (error instanceof BadRequestException) return null;
+      throw error;
+    }
   }
 
   private async ensureNoConflict(
     tx: Prisma.TransactionClient,
     tenantId: string,
+    locationId: string,
     providerId: string,
     startAt: Date,
     endAt: Date,
@@ -732,14 +862,25 @@ export class AppointmentsService {
       where: {
         tenantId,
         providerId,
-        status: { not: 'CANCELLED' },
+        status: { in: AVAILABILITY_BLOCKING_STATUSES },
         ...(excludeId ? { id: { not: excludeId } } : {}),
         startAt: { lt: endAt },
         endAt: { gt: startAt },
       },
       select: { id: true },
     });
-    if (conflict) throw new ConflictException(CONFLICT_MESSAGE);
+    if (conflict)
+      throw new AppointmentSchedulingException(
+        appointmentSchedulingCodes.slotUnavailable,
+        {
+          providerId,
+          locationId,
+          requestedStart: startAt.toISOString(),
+          requestedEnd: endAt.toISOString(),
+          reason: appointmentSchedulingCodes.providerConflict,
+        },
+        CONFLICT_MESSAGE,
+      );
   }
 
   private present<

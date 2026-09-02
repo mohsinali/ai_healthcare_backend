@@ -20,6 +20,12 @@ function setup(options?: {
   closed?: boolean;
   appointments?: { startAt: Date; endAt: Date }[];
   providerLocation?: boolean;
+  periods?: Array<{
+    dayOfWeek: 'THURSDAY';
+    startTime: string;
+    endTime: string;
+    isActive: boolean;
+  }>;
 }) {
   const prisma = {
     location: {
@@ -57,6 +63,18 @@ function setup(options?: {
     appointment: {
       findMany: jest.fn().mockResolvedValue(options?.appointments ?? []),
     },
+    providerWorkingPeriod: {
+      findMany: jest.fn().mockResolvedValue(
+        options?.periods ?? [
+          {
+            dayOfWeek: 'THURSDAY',
+            startTime: '09:00',
+            endTime: '10:00',
+            isActive: true,
+          },
+        ],
+      ),
+    },
   };
   return {
     prisma,
@@ -91,7 +109,15 @@ describe('AppointmentsService availability', () => {
     ).resolves.toMatchObject({ slots: [] });
   });
 
-  it('removes every overlapping slot and queries only non-cancelled appointments', async () => {
+  it('does not fall back to Location hours when the provider schedule is empty', async () => {
+    const { service, prisma } = setup({ periods: [] });
+    await expect(
+      service.availability(context, { ...ids, date: '2026-09-10' }),
+    ).resolves.toMatchObject({ slots: [] });
+    expect(prisma.appointment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('removes every overlapping slot and queries only blocking appointments', async () => {
     const { service, prisma } = setup({
       appointments: [
         {
@@ -109,7 +135,9 @@ describe('AppointmentsService availability', () => {
       expect.objectContaining({
         // Jest asymmetric matchers are intentionally typed as any.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        where: expect.objectContaining({ status: { not: 'CANCELLED' } }),
+        where: expect.objectContaining({
+          status: { in: ['BOOKED', 'CONFIRMED'] },
+        }),
       }),
     );
   });

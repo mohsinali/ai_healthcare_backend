@@ -6,6 +6,7 @@ import {
 } from '@prisma/client';
 import { DateTime } from 'luxon';
 import { PrismaService } from '../database/prisma.service';
+import { usableAvailabilityWindows } from './availability-windows';
 
 export const AVAILABILITY_SLOT_INTERVAL_MINUTES = 15;
 export const AVAILABILITY_DEFAULT_WINDOW_DAYS = 7;
@@ -154,17 +155,42 @@ export class AvailabilitySearchService {
 
     const queryStart = start.startOf('day').toUTC();
     const queryEnd = end.plus({ days: 1 }).startOf('day').toUTC();
-    const appointments = await this.prisma.appointment.findMany({
-      where: {
-        tenantId: input.tenantId,
-        locationId: input.locationId,
-        providerId: { in: namedProviders.map(({ id }) => id) },
-        status: { in: AVAILABILITY_BLOCKING_STATUSES },
-        startAt: { lt: queryEnd.toJSDate() },
-        endAt: { gt: queryStart.toJSDate() },
-      },
-      select: { providerId: true, startAt: true, endAt: true },
-    });
+    const weekdays = new Set<DayOfWeek>();
+    for (
+      let day = start;
+      day.toMillis() <= end.toMillis();
+      day = day.plus({ days: 1 })
+    )
+      weekdays.add(DAY_NAMES[day.weekday]);
+    const providerIds = namedProviders.map(({ id }) => id);
+    const [periods, appointments] = await Promise.all([
+      this.prisma.providerWorkingPeriod.findMany({
+        where: {
+          tenantId: input.tenantId,
+          locationId: input.locationId,
+          providerId: { in: providerIds },
+          dayOfWeek: { in: [...weekdays] },
+          isActive: true,
+        },
+        select: {
+          providerId: true,
+          dayOfWeek: true,
+          startTime: true,
+          endTime: true,
+          isActive: true,
+        },
+      }),
+      this.prisma.appointment.findMany({
+        where: {
+          tenantId: input.tenantId,
+          providerId: { in: providerIds },
+          status: { in: AVAILABILITY_BLOCKING_STATUSES },
+          startAt: { lt: queryEnd.toJSDate() },
+          endAt: { gt: queryStart.toJSDate() },
+        },
+        select: { providerId: true, startAt: true, endAt: true },
+      }),
+    ]);
 
     const slots: AvailabilitySearchSlot[] = [];
     for (
@@ -176,39 +202,48 @@ export class AvailabilitySearchService {
       const hours = location.businessHours.find(
         (value) => value.dayOfWeek === DAY_NAMES[day.weekday],
       );
-      if (!hours || hours.isClosed || !hours.openTime || !hours.closeTime)
-        continue;
-      const open = this.wallTime(date, hours.openTime, location.timezone);
-      const close = this.wallTime(date, hours.closeTime, location.timezone);
-      for (
-        let cursor = open;
-        cursor.plus({ minutes: service.durationMinutes }).toMillis() <=
-        close.toMillis();
-        cursor = cursor.plus({ minutes: AVAILABILITY_SLOT_INTERVAL_MINUTES })
-      ) {
-        if (
-          cursor.getPossibleOffsets().length > 1 ||
-          cursor.toMillis() <= now.toMillis()
-        )
-          continue;
-        if (!this.matchesTimeOfDay(cursor, input.timeOfDay ?? 'any')) continue;
-        const slotEnd = cursor.plus({ minutes: service.durationMinutes });
-        for (const provider of namedProviders) {
-          const conflict = appointments.some(
-            (appointment) =>
-              appointment.providerId === provider.id &&
-              appointment.startAt.valueOf() < slotEnd.toMillis() &&
-              appointment.endAt.valueOf() > cursor.toMillis(),
-          );
-          if (!conflict) {
-            slots.push({
-              providerId: provider.id,
-              providerName: provider.name,
-              localDate: date,
-              localTime: cursor.toFormat('HH:mm'),
-              startsAt: cursor.toISO()!,
-              endsAt: slotEnd.toISO()!,
-            });
+      for (const provider of namedProviders) {
+        const windows = usableAvailabilityWindows(
+          DAY_NAMES[day.weekday],
+          periods.filter((period) => period.providerId === provider.id),
+          hours,
+        );
+        for (const window of windows) {
+          const open = this.wallTime(date, window.startTime, location.timezone);
+          const close = this.wallTime(date, window.endTime, location.timezone);
+          if (!open || !close) continue;
+          for (
+            let cursor = open;
+            cursor.plus({ minutes: service.durationMinutes }).toMillis() <=
+            close.toMillis();
+            cursor = cursor.plus({
+              minutes: AVAILABILITY_SLOT_INTERVAL_MINUTES,
+            })
+          ) {
+            if (
+              cursor.getPossibleOffsets().length > 1 ||
+              cursor.toMillis() <= now.toMillis()
+            )
+              continue;
+            if (!this.matchesTimeOfDay(cursor, input.timeOfDay ?? 'any'))
+              continue;
+            const slotEnd = cursor.plus({ minutes: service.durationMinutes });
+            const conflict = appointments.some(
+              (appointment) =>
+                appointment.providerId === provider.id &&
+                appointment.startAt.valueOf() < slotEnd.toMillis() &&
+                appointment.endAt.valueOf() > cursor.toMillis(),
+            );
+            if (!conflict) {
+              slots.push({
+                providerId: provider.id,
+                providerName: provider.name,
+                localDate: date,
+                localTime: cursor.toFormat('HH:mm'),
+                startsAt: cursor.toISO()!,
+                endsAt: slotEnd.toISO()!,
+              });
+            }
           }
         }
       }
@@ -217,7 +252,8 @@ export class AvailabilitySearchService {
       (a, b) =>
         DateTime.fromISO(a.startsAt).toMillis() -
           DateTime.fromISO(b.startsAt).toMillis() ||
-        a.providerName.localeCompare(b.providerName),
+        a.providerName.localeCompare(b.providerName) ||
+        a.providerId.localeCompare(b.providerId),
     );
     return {
       location,
@@ -233,15 +269,13 @@ export class AvailabilitySearchService {
     return parsed.startOf('day');
   }
 
-  private wallTime(date: string, time: string, zone: string): DateTime {
+  private wallTime(date: string, time: string, zone: string): DateTime | null {
     const parsed = DateTime.fromISO(`${date}T${time}`, { zone, setZone: true });
     if (
       !parsed.isValid ||
       parsed.toFormat('yyyy-MM-dd HH:mm') !== `${date} ${time}`
     )
-      throw new BadRequestException(
-        'Business hours are invalid in the Location timezone.',
-      );
+      return null;
     return parsed;
   }
 
