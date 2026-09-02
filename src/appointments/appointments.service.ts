@@ -228,6 +228,114 @@ export class AppointmentsService {
     return this.get(c, id);
   }
 
+  async bookVerifiedPatient(input: {
+    tenantId: string;
+    patientId: string;
+    locationId: string;
+    serviceId: string;
+    providerId: string;
+    appointmentDate: string;
+    startTime: string;
+    now?: Date;
+  }) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const config = await this.configuration(
+          tx,
+          input.tenantId,
+          input.locationId,
+          input.providerId,
+          input.serviceId,
+          input.patientId,
+        );
+        const localStart = this.wallTime(
+          input.appointmentDate,
+          input.startTime,
+          config.location.timezone,
+          true,
+        );
+        if (localStart.minute % APPOINTMENT_SLOT_INTERVAL_MINUTES !== 0)
+          throw new BadRequestException('Enter a valid appointment time.');
+        const range = {
+          start: localStart.toUTC().toJSDate(),
+          end: localStart
+            .plus({ minutes: config.service.durationMinutes })
+            .toUTC()
+            .toJSDate(),
+          localDate: input.appointmentDate,
+        };
+        if (range.start.valueOf() <= (input.now ?? new Date()).valueOf())
+          throw new BadRequestException(
+            'Appointment time must be in the future.',
+          );
+
+        await this.lock(tx, input.tenantId, input.providerId, range.localDate);
+        this.validateHours(
+          config.location.businessHours,
+          range,
+          config.location.timezone,
+        );
+
+        const duplicate = await tx.appointment.findFirst({
+          where: {
+            tenantId: input.tenantId,
+            patientId: input.patientId,
+            locationId: input.locationId,
+            serviceId: input.serviceId,
+            providerId: input.providerId,
+            startAt: range.start,
+            status: { in: ['BOOKED', 'CONFIRMED'] },
+          },
+          select: { appointmentNumber: true },
+        });
+        if (duplicate)
+          return {
+            appointmentNumber: duplicate.appointmentNumber,
+            locationName: config.location.name,
+            serviceName: config.service.name,
+            providerName: this.providerName(config.provider),
+            timezone: config.location.timezone,
+            duplicate: true,
+          };
+
+        await this.ensureNoConflict(
+          tx,
+          input.tenantId,
+          input.providerId,
+          range.start,
+          range.end,
+        );
+        const sequence = await this.sequences.next(
+          input.tenantId,
+          SequenceType.APPOINTMENT,
+        );
+        const appointment = await tx.appointment.create({
+          data: {
+            tenantId: input.tenantId,
+            appointmentNumber: sequence.formatted,
+            patientId: input.patientId,
+            locationId: input.locationId,
+            providerId: input.providerId,
+            serviceId: input.serviceId,
+            startAt: range.start,
+            endAt: range.end,
+            events: { create: { type: 'CREATED' } },
+          },
+          select: { appointmentNumber: true },
+        });
+        return {
+          appointmentNumber: appointment.appointmentNumber,
+          locationName: config.location.name,
+          serviceName: config.service.name,
+          providerName: this.providerName(config.provider),
+          timezone: config.location.timezone,
+          duplicate: false,
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+    );
+  }
+
   async list(c: TrustedTenantContext, q: ListAppointmentsDto) {
     const search = q.search?.trim();
     const where: Prisma.AppointmentWhereInput = {
@@ -647,6 +755,19 @@ export class AppointmentsService {
         .toISO(),
       timezone: value.location.timezone,
     };
+  }
+  private providerName(provider: {
+    firstName: string;
+    lastName: string;
+    displayName: string | null;
+    title: string | null;
+  }) {
+    return (
+      provider.displayName ??
+      [provider.title, provider.firstName, provider.lastName]
+        .filter(Boolean)
+        .join(' ')
+    );
   }
   private terminal(status: AppointmentStatus) {
     return status === 'COMPLETED' || status === 'NO_SHOW';

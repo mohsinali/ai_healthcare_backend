@@ -21,6 +21,10 @@ export type PatientVerificationResponse = {
   message: string;
 };
 
+export type VerifiedPatientLookup =
+  | { status: 'verified'; patientId: string }
+  | { status: 'verification_required' | 'manual_verification_required' };
+
 const MANUAL: PatientVerificationResponse = {
   status: 'manual_verification_required',
   message:
@@ -169,5 +173,31 @@ export class VoicePatientVerificationService {
     if (!patient)
       throw new UnauthorizedException('Patient verification is required.');
     return patient.id;
+  }
+
+  async getVerifiedPatientForBooking(
+    resolved: ResolvedVoiceToolSession,
+  ): Promise<VerifiedPatientLookup> {
+    const session = await this.sessions.resolve(resolved.token);
+    this.sessions.assertMatches(
+      session,
+      resolved.context.tenantId,
+      resolved.context.channel,
+      resolved.context.webVoiceChannelId,
+    );
+    const state = this.sessions.patientVerification(session);
+    if (state.locked) return { status: 'manual_verification_required' };
+    if (!state.verifiedPatientId) return { status: 'verification_required' };
+    const patient = await this.prisma.patient.findFirst({
+      where: {
+        id: state.verifiedPatientId,
+        tenantId: resolved.context.tenantId,
+        status: PatientStatus.ACTIVE,
+      },
+      select: { id: true },
+    });
+    return patient
+      ? { status: 'verified', patientId: patient.id }
+      : { status: 'verification_required' };
   }
 }

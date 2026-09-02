@@ -12,6 +12,6 @@ import { AvailabilitySearchService } from './availability-search.service';
   imports: [DatabaseModule, SequencesModule],
   controllers: [AppointmentsController, SchedulingController],
   providers: [AppointmentsService, AvailabilitySearchService],
-  exports: [AvailabilitySearchService],
+  exports: [AppointmentsService, AvailabilitySearchService],
 })
 export class AppointmentsModule {}
