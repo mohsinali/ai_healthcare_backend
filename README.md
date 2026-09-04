@@ -1,5 +1,12 @@
 # AI Healthcare Backend
 
+## Documentation
+
+- [Multi-tenancy architecture](docs/MULTI_TENANCY.md)
+- [Clinic configuration](docs/CLINIC_CONFIGURATION.md)
+- [FAQ knowledge base](docs/FAQ_KNOWLEDGE_BASE.md)
+- [Scheduling](docs/SCHEDULING.md)
+
 ## Redis for native local development
 
 The NestJS and Next.js applications continue to run directly on the host. Voice sessions require Redis at `REDIS_HOST`/`REDIS_PORT` (defaults: `127.0.0.1:6379`). On macOS:
