@@ -199,4 +199,73 @@ describeRedis('VoiceSessionService Redis concurrency', () => {
     await service.replacePatientCandidates(token, ['patient-b']);
     expect((await service.resolve(token)).appointmentSelection).toBeUndefined();
   });
+
+  it('binds reschedule confirmation to patient and selection versions without extending TTL', async () => {
+    const { token } = await create();
+    const key = keyFor(token);
+    await service.replacePatientCandidates(token, ['patient-a']);
+    await service.applyPatientVerification(token, 1, 'patient-a');
+    await service.setAppointmentSelection(
+      token,
+      1,
+      'patient-a',
+      'appointment-a',
+    );
+    const initialTtl = await client.pTTL(key);
+    await expect(
+      service.setPendingReschedule({
+        token,
+        patientId: 'patient-a',
+        appointmentId: 'appointment-a',
+        appointmentDate: '2026-09-12',
+        startTime: '14:30',
+      }),
+    ).resolves.toBe('updated');
+    await expect(
+      service.consumePendingReschedule({
+        token,
+        patientId: 'patient-a',
+        appointmentId: 'appointment-a',
+        appointmentDate: '2026-09-13',
+        startTime: '14:30',
+      }),
+    ).resolves.toBe('missing');
+    await expect(
+      service.consumePendingReschedule({
+        token,
+        patientId: 'patient-a',
+        appointmentId: 'appointment-a',
+        appointmentDate: '2026-09-12',
+        startTime: '14:30',
+      }),
+    ).resolves.toBe('consumed');
+    expect((await service.resolve(token)).pendingReschedule).toBeUndefined();
+    expect(await client.pTTL(key)).toBeLessThanOrEqual(initialTtl);
+  });
+
+  it('a new appointment selection clears an older reschedule proposal', async () => {
+    const { token } = await create();
+    await service.replacePatientCandidates(token, ['patient-a']);
+    await service.applyPatientVerification(token, 1, 'patient-a');
+    await service.setAppointmentSelection(
+      token,
+      1,
+      'patient-a',
+      'appointment-a',
+    );
+    await service.setPendingReschedule({
+      token,
+      patientId: 'patient-a',
+      appointmentId: 'appointment-a',
+      appointmentDate: '2026-09-12',
+      startTime: '14:30',
+    });
+    await service.setAppointmentSelection(
+      token,
+      1,
+      'patient-a',
+      'appointment-b',
+    );
+    expect((await service.resolve(token)).pendingReschedule).toBeUndefined();
+  });
 });

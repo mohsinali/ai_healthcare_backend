@@ -21,6 +21,7 @@ import { VoicePatientVerificationController } from './voice-patient-verification
 import { VoicePatientVerificationService } from './voice-patient-verification.service';
 import { VoiceAppointmentBookingService } from './voice-appointment-booking.service';
 import { VoiceAppointmentSearchService } from './voice-appointment-search.service';
+import { VoiceAppointmentReschedulingService } from './voice-appointment-rescheduling.service';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { VoiceAppointmentSearchService } from './voice-appointment-search.servic
     VoicePatientVerificationService,
     VoiceAppointmentBookingService,
     VoiceAppointmentSearchService,
+    VoiceAppointmentReschedulingService,
   ],
   exports: [VoiceBootstrapService, VoicePatientVerificationService],
 })

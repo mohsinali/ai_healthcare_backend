@@ -36,6 +36,7 @@ describe('AppointmentsService protected scheduling writes', () => {
   ) {
     const current = {
       id: ids.appointmentId,
+      appointmentNumber: 'APT-001',
       tenantId: 'tenant-a',
       patientId: ids.patientId,
       locationId: ids.locationId,
@@ -280,6 +281,88 @@ describe('AppointmentsService protected scheduling writes', () => {
       response: { code: appointmentSchedulingCodes.slotUnavailable },
     });
     expect(tx.appointment.update).not.toHaveBeenCalled();
+  });
+
+  it('voice rescheduling preserves relationships, duration and excludes itself from provider-wide conflicts', async () => {
+    const { service, tx } = setup();
+    const result = await service.rescheduleVerifiedPatient({
+      tenantId: 'tenant-a',
+      patientId: ids.patientId,
+      appointmentId: ids.appointmentId,
+      appointmentDate: '2026-09-10',
+      startTime: '11:00',
+      mutate: true,
+      now: new Date('2026-09-01T00:00:00Z'),
+    });
+    expect(result).toMatchObject({ status: 'valid', changed: true });
+    expect(tx.$executeRaw.mock.calls.map((call) => call[1])).toEqual([
+      'appointment-record:tenant-a:appointment-a',
+      'clinic-config:location-schedule:tenant-a:location-a',
+      'appointment-schedule:tenant-a:provider-z',
+    ]);
+    expect(tx.appointment.findFirst).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          providerId: ids.providerId,
+          id: { not: ids.appointmentId },
+        }),
+      }),
+    );
+    expect(tx.appointment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          startAt: new Date('2026-09-10T15:00:00Z'),
+          endAt: new Date('2026-09-10T15:30:00Z'),
+        }),
+      }),
+    );
+    expect(
+      JSON.stringify(tx.appointment.update.mock.calls[0][0].data),
+    ).not.toMatch(/patientId|providerId|serviceId|locationId/);
+  });
+
+  it('voice preview never mutates and foreign, terminal, or stale selections fail safely', async () => {
+    const preview = setup();
+    await expect(
+      preview.service.rescheduleVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: ids.patientId,
+        appointmentId: ids.appointmentId,
+        appointmentDate: '2026-09-10',
+        startTime: '11:00',
+        mutate: false,
+        now: new Date('2026-09-01T00:00:00Z'),
+      }),
+    ).resolves.toMatchObject({ status: 'valid' });
+    expect(preview.tx.appointment.update).not.toHaveBeenCalled();
+
+    const foreign = setup();
+    foreign.tx.appointment.findFirst.mockReset().mockResolvedValue(null);
+    await expect(
+      foreign.service.rescheduleVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: 'patient-b',
+        appointmentId: ids.appointmentId,
+        appointmentDate: '2026-09-10',
+        startTime: '11:00',
+        mutate: true,
+      }),
+    ).resolves.toEqual({ status: 'selection_invalid' });
+    expect(foreign.tx.appointment.update).not.toHaveBeenCalled();
+
+    const terminal = setup({ current: { status: 'NO_SHOW' } });
+    await expect(
+      terminal.service.rescheduleVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: ids.patientId,
+        appointmentId: ids.appointmentId,
+        appointmentDate: '2026-09-10',
+        startTime: '11:00',
+        mutate: true,
+        now: new Date('2026-09-01T00:00:00Z'),
+      }),
+    ).resolves.toEqual({ status: 'appointment_not_reschedulable' });
+    expect(terminal.tx.appointment.update).not.toHaveBeenCalled();
   });
 
   it('serializes cancellation release with record then provider locks', async () => {

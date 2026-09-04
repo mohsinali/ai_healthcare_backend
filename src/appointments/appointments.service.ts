@@ -75,6 +75,25 @@ const appointmentInclude = {
   },
 } satisfies Prisma.AppointmentInclude;
 
+export type VerifiedPatientRescheduleResult =
+  | { status: 'selection_invalid' }
+  | { status: 'appointment_not_reschedulable' }
+  | {
+      status: 'valid';
+      changed: boolean;
+      appointment: {
+        appointmentNumber: string;
+        startAt: Date;
+        endAt: Date;
+        status: AppointmentStatus;
+        timezone: string;
+        locationName: string;
+        serviceName: string;
+        providerName: string;
+      };
+      current: { startAt: Date; endAt: Date };
+    };
+
 @Injectable()
 export class AppointmentsService {
   constructor(
@@ -379,6 +398,131 @@ export class AppointmentsService {
           timezone: config.location.timezone,
           duplicate: false,
         };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+    );
+  }
+
+  async rescheduleVerifiedPatient(input: {
+    tenantId: string;
+    patientId: string;
+    appointmentId: string;
+    appointmentDate: string;
+    startTime: string;
+    mutate: boolean;
+    now?: Date;
+  }): Promise<VerifiedPatientRescheduleResult> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await lockAppointmentRecord(tx, input.tenantId, input.appointmentId);
+        const current = await tx.appointment.findFirst({
+          where: {
+            id: input.appointmentId,
+            tenantId: input.tenantId,
+            patientId: input.patientId,
+          },
+        });
+        if (!current) return { status: 'selection_invalid' } as const;
+        const now = input.now ?? new Date();
+        if (
+          current.status === AppointmentStatus.CANCELLED ||
+          this.terminal(current.status) ||
+          current.startAt.valueOf() <= now.valueOf()
+        )
+          return { status: 'appointment_not_reschedulable' } as const;
+
+        await lockLocationSchedule(tx, input.tenantId, current.locationId);
+        await lockProviderAppointmentSchedules(tx, input.tenantId, [
+          current.providerId,
+        ]);
+        const config = await this.configuration(
+          tx,
+          input.tenantId,
+          current.locationId,
+          current.providerId,
+          current.serviceId,
+          current.patientId,
+        );
+        const localStart = this.wallTime(
+          input.appointmentDate,
+          input.startTime,
+          config.location.timezone,
+          true,
+        );
+        if (localStart.minute % APPOINTMENT_SLOT_INTERVAL_MINUTES !== 0)
+          throw new BadRequestException('Enter a valid appointment time.');
+        const range = {
+          start: localStart.toUTC().toJSDate(),
+          end: localStart
+            .plus({ minutes: config.service.durationMinutes })
+            .toUTC()
+            .toJSDate(),
+          localDate: input.appointmentDate,
+        };
+        if (range.start.valueOf() <= now.valueOf())
+          throw new BadRequestException(
+            'Appointment time must be in the future.',
+          );
+        await this.validateSchedulingWindow(
+          tx,
+          input.tenantId,
+          current.locationId,
+          current.providerId,
+          config.location.businessHours,
+          config.location.timezone,
+          range,
+        );
+        await this.ensureNoConflict(
+          tx,
+          input.tenantId,
+          current.locationId,
+          current.providerId,
+          range.start,
+          range.end,
+          current.id,
+        );
+        const changed =
+          current.startAt.valueOf() !== range.start.valueOf() ||
+          current.endAt.valueOf() !== range.end.valueOf();
+        if (input.mutate && changed)
+          await tx.appointment.update({
+            where: {
+              tenantId_id: {
+                tenantId: input.tenantId,
+                id: current.id,
+              },
+            },
+            data: {
+              startAt: range.start,
+              endAt: range.end,
+              events: {
+                create: {
+                  type: 'RESCHEDULED',
+                  metadata: {
+                    oldStartAt: current.startAt.toISOString(),
+                    oldEndAt: current.endAt.toISOString(),
+                    newStartAt: range.start.toISOString(),
+                    newEndAt: range.end.toISOString(),
+                  },
+                },
+              },
+            },
+          });
+        return {
+          status: 'valid',
+          changed,
+          current: { startAt: current.startAt, endAt: current.endAt },
+          appointment: {
+            appointmentNumber: current.appointmentNumber,
+            startAt: range.start,
+            endAt: range.end,
+            status: current.status,
+            timezone: config.location.timezone,
+            locationName: config.location.name,
+            serviceName: config.service.name,
+            providerName: this.providerName(config.provider),
+          },
+        } as const;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
     );

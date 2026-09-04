@@ -11,8 +11,16 @@ export interface VoiceSessionRecord {
   selectedLocationId: string | null;
   patientVerification?: PatientVerificationState;
   appointmentSelection?: AppointmentSelectionState;
+  pendingReschedule?: PendingRescheduleState;
   createdAt: string;
   expiresAt: string;
+}
+
+export interface PendingRescheduleState {
+  appointmentDate: string;
+  startTime: string;
+  patientVerificationFlowVersion: number;
+  appointmentSelectionVersion: number;
 }
 
 export interface AppointmentSelectionState {

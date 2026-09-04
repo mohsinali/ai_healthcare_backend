@@ -20,6 +20,7 @@ import { VoiceServiceSearchDto } from './dto/voice-service-search.dto';
 import { VoiceAvailabilitySearchDto } from './dto/voice-availability-search.dto';
 import { VoiceBookAppointmentDto } from './dto/voice-book-appointment.dto';
 import { VoiceAppointmentSearchDto } from './dto/voice-appointment-search.dto';
+import { VoiceRescheduleAppointmentDto } from './dto/voice-reschedule-appointment.dto';
 import {
   VoiceAppointmentBookingService,
   VoiceBookingResponse,
@@ -38,6 +39,10 @@ import {
   VoiceAppointmentSearchResponse,
   VoiceAppointmentSearchService,
 } from './voice-appointment-search.service';
+import {
+  VoiceAppointmentReschedulingService,
+  VoiceRescheduleResponse,
+} from './voice-appointment-rescheduling.service';
 
 @ApiTags('voice tools')
 @ApiBearerAuth('voice-service')
@@ -51,7 +56,25 @@ export class VoiceDirectoryController {
     private readonly availability: VoiceAvailabilityService,
     private readonly booking: VoiceAppointmentBookingService,
     private readonly appointmentSearch: VoiceAppointmentSearchService,
+    private readonly appointmentRescheduling: VoiceAppointmentReschedulingService,
   ) {}
+
+  @Post('reschedule-appointment')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiHeader({ name: 'X-Voice-Widget-Key', required: true })
+  @ApiHeader({ name: 'X-Voice-Session-Token', required: true })
+  @ApiOkResponse({
+    description: 'Voice-safe appointment rescheduling outcome.',
+  })
+  async rescheduleAppointment(
+    @Headers('x-voice-widget-key') widgetKey: string | undefined,
+    @Headers('x-voice-session-token') sessionToken: string | undefined,
+    @Body() dto: VoiceRescheduleAppointmentDto,
+  ): Promise<VoiceRescheduleResponse> {
+    const resolved = await this.toolSessions.resolve(sessionToken, widgetKey);
+    return this.appointmentRescheduling.reschedule(resolved, dto);
+  }
 
   @Post('search-appointments')
   @HttpCode(200)

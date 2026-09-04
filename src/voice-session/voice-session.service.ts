@@ -130,6 +130,7 @@ export class VoiceSessionService {
          patient.identificationFlowVersion = patient.identificationFlowVersion + 1
          state.patientVerification = patient
          state.appointmentSelection = nil
+         state.pendingReschedule = nil
          local encoded = cjson.encode(state)
          encoded = string.gsub(encoded, '"candidatePatientIds":{}', '"candidatePatientIds":[]', 1)
          redis.call('SET', KEYS[1], encoded, 'KEEPTTL')
@@ -204,7 +205,10 @@ export class VoiceSessionService {
          local prior = state.appointmentSelection
          local version = prior and prior ~= cjson.null and prior.selectionVersion or 0
          state.appointmentSelection = {selectedAppointmentId=ARGV[3] ~= '' and ARGV[3] or cjson.null, patientVerificationFlowVersion=tonumber(ARGV[1]), selectionVersion=version + 1}
-         redis.call('SET', KEYS[1], cjson.encode(state), 'KEEPTTL')
+         state.pendingReschedule = nil
+         local encoded = cjson.encode(state)
+         encoded = string.gsub(encoded, '"candidatePatientIds":{}', '"candidatePatientIds":[]', 1)
+         redis.call('SET', KEYS[1], encoded, 'KEEPTTL')
          return 1`,
         {
           keys: [this.key(token)],
@@ -244,6 +248,108 @@ export class VoiceSessionService {
     )
       return null;
     return selection.selectedAppointmentId;
+  }
+
+  async setPendingReschedule(input: {
+    token: string;
+    patientId: string;
+    appointmentId: string;
+    appointmentDate: string;
+    startTime: string;
+  }): Promise<'updated' | 'stale'> {
+    const result = await this.redis.execute((client) =>
+      client.eval(
+        `local raw = redis.call('GET', KEYS[1])
+         if not raw then return -1 end
+         local state = cjson.decode(raw)
+         local patient = state.patientVerification
+         local selection = state.appointmentSelection
+         if not patient or patient.locked or patient.verifiedPatientId ~= ARGV[1] or not selection or selection.selectedAppointmentId ~= ARGV[2] or selection.patientVerificationFlowVersion ~= patient.identificationFlowVersion then return 0 end
+         state.pendingReschedule = {appointmentDate=ARGV[3], startTime=ARGV[4], patientVerificationFlowVersion=patient.identificationFlowVersion, appointmentSelectionVersion=selection.selectionVersion}
+         local encoded = cjson.encode(state)
+         encoded = string.gsub(encoded, '"candidatePatientIds":{}', '"candidatePatientIds":[]', 1)
+         redis.call('SET', KEYS[1], encoded, 'KEEPTTL')
+         return 1`,
+        {
+          keys: [this.key(input.token)],
+          arguments: [
+            input.patientId,
+            input.appointmentId,
+            input.appointmentDate,
+            input.startTime,
+          ],
+        },
+      ),
+    );
+    if (result === -1) this.invalid();
+    return result === 1 ? 'updated' : 'stale';
+  }
+
+  async consumePendingReschedule(input: {
+    token: string;
+    patientId: string;
+    appointmentId: string;
+    appointmentDate: string;
+    startTime: string;
+  }): Promise<'consumed' | 'missing' | 'stale'> {
+    const result = await this.redis.execute((client) =>
+      client.eval(
+        `local raw = redis.call('GET', KEYS[1])
+         if not raw then return -1 end
+         local state = cjson.decode(raw)
+         local patient = state.patientVerification
+         local selection = state.appointmentSelection
+         local proposal = state.pendingReschedule
+         if not patient or patient.locked or patient.verifiedPatientId ~= ARGV[1] or not selection or selection.selectedAppointmentId ~= ARGV[2] or selection.patientVerificationFlowVersion ~= patient.identificationFlowVersion then return 0 end
+         if not proposal or proposal.patientVerificationFlowVersion ~= patient.identificationFlowVersion or proposal.appointmentSelectionVersion ~= selection.selectionVersion or proposal.appointmentDate ~= ARGV[3] or proposal.startTime ~= ARGV[4] then return 2 end
+         state.pendingReschedule = nil
+         local encoded = cjson.encode(state)
+         encoded = string.gsub(encoded, '"candidatePatientIds":{}', '"candidatePatientIds":[]', 1)
+         redis.call('SET', KEYS[1], encoded, 'KEEPTTL')
+         return 1`,
+        {
+          keys: [this.key(input.token)],
+          arguments: [
+            input.patientId,
+            input.appointmentId,
+            input.appointmentDate,
+            input.startTime,
+          ],
+        },
+      ),
+    );
+    if (result === -1) this.invalid();
+    if (result === 1) return 'consumed';
+    return result === 2 ? 'missing' : 'stale';
+  }
+
+  async clearAppointmentSelection(input: {
+    token: string;
+    patientId: string;
+    appointmentId: string;
+  }): Promise<void> {
+    const result = await this.redis.execute((client) =>
+      client.eval(
+        `local raw = redis.call('GET', KEYS[1])
+         if not raw then return -1 end
+         local state = cjson.decode(raw)
+         local patient = state.patientVerification
+         local selection = state.appointmentSelection
+         if patient and patient.verifiedPatientId == ARGV[1] and selection and selection.selectedAppointmentId == ARGV[2] then
+           state.appointmentSelection = nil
+           state.pendingReschedule = nil
+           local encoded = cjson.encode(state)
+           encoded = string.gsub(encoded, '"candidatePatientIds":{}', '"candidatePatientIds":[]', 1)
+           redis.call('SET', KEYS[1], encoded, 'KEEPTTL')
+         end
+         return 1`,
+        {
+          keys: [this.key(input.token)],
+          arguments: [input.patientId, input.appointmentId],
+        },
+      ),
+    );
+    if (result === -1) this.invalid();
   }
 
   private key(token: string): string {
@@ -297,6 +403,19 @@ export class VoiceSessionService {
           selection.patientVerificationFlowVersion < 0 ||
           !Number.isInteger(selection.selectionVersion) ||
           selection.selectionVersion < 1
+        )
+          this.invalid();
+      }
+      if (item.pendingReschedule !== undefined) {
+        const proposal = item.pendingReschedule;
+        if (
+          !proposal ||
+          typeof proposal.appointmentDate !== 'string' ||
+          typeof proposal.startTime !== 'string' ||
+          !Number.isInteger(proposal.patientVerificationFlowVersion) ||
+          proposal.patientVerificationFlowVersion < 0 ||
+          !Number.isInteger(proposal.appointmentSelectionVersion) ||
+          proposal.appointmentSelectionVersion < 1
         )
           this.invalid();
       }
