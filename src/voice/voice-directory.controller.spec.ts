@@ -21,6 +21,7 @@ describe('VoiceDirectoryController', () => {
       { resolve } as never,
       {} as never,
       {} as never,
+      {} as never,
     );
     await controller.searchServices('widget', 'LOC-1', 'token', {
       query: 'care',

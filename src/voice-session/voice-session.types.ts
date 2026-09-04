@@ -10,8 +10,15 @@ export interface VoiceSessionRecord {
   channelIdentity: string;
   selectedLocationId: string | null;
   patientVerification?: PatientVerificationState;
+  appointmentSelection?: AppointmentSelectionState;
   createdAt: string;
   expiresAt: string;
+}
+
+export interface AppointmentSelectionState {
+  selectedAppointmentId: string | null;
+  patientVerificationFlowVersion: number;
+  selectionVersion: number;
 }
 
 export interface PatientVerificationState {

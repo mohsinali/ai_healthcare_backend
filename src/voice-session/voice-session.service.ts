@@ -129,6 +129,7 @@ export class VoiceSessionService {
          patient.identificationCompleted = true
          patient.identificationFlowVersion = patient.identificationFlowVersion + 1
          state.patientVerification = patient
+         state.appointmentSelection = nil
          local encoded = cjson.encode(state)
          encoded = string.gsub(encoded, '"candidatePatientIds":{}', '"candidatePatientIds":[]', 1)
          redis.call('SET', KEYS[1], encoded, 'KEEPTTL')
@@ -187,6 +188,64 @@ export class VoiceSessionService {
     return 'not_verified';
   }
 
+  async setAppointmentSelection(
+    token: string,
+    expectedFlowVersion: number,
+    verifiedPatientId: string,
+    appointmentId: string | null,
+  ): Promise<'updated' | 'stale'> {
+    const result = await this.redis.execute((client) =>
+      client.eval(
+        `local raw = redis.call('GET', KEYS[1])
+         if not raw then return -1 end
+         local state = cjson.decode(raw)
+         local patient = state.patientVerification
+         if not patient or patient.locked or patient.verifiedPatientId ~= ARGV[2] or patient.identificationFlowVersion ~= tonumber(ARGV[1]) then return 0 end
+         local prior = state.appointmentSelection
+         local version = prior and prior ~= cjson.null and prior.selectionVersion or 0
+         state.appointmentSelection = {selectedAppointmentId=ARGV[3] ~= '' and ARGV[3] or cjson.null, patientVerificationFlowVersion=tonumber(ARGV[1]), selectionVersion=version + 1}
+         redis.call('SET', KEYS[1], cjson.encode(state), 'KEEPTTL')
+         return 1`,
+        {
+          keys: [this.key(token)],
+          arguments: [
+            String(expectedFlowVersion),
+            verifiedPatientId,
+            appointmentId ?? '',
+          ],
+        },
+      ),
+    );
+    if (result === -1) this.invalid();
+    return result === 1 ? 'updated' : 'stale';
+  }
+
+  async getSelectedAppointmentId(input: {
+    token: string;
+    tenantId: string;
+    channel: VoiceChannel;
+    channelIdentity: string;
+  }): Promise<string | null> {
+    const session = await this.resolve(input.token);
+    this.assertMatches(
+      session,
+      input.tenantId,
+      input.channel,
+      input.channelIdentity,
+    );
+    const patient = this.patientVerification(session);
+    const selection = session.appointmentSelection;
+    if (
+      patient.locked ||
+      !patient.verifiedPatientId ||
+      !selection ||
+      selection.patientVerificationFlowVersion !==
+        patient.identificationFlowVersion
+    )
+      return null;
+    return selection.selectedAppointmentId;
+  }
+
   private key(token: string): string {
     return `${KEY_PREFIX}${createHash('sha256').update(token).digest('hex')}`;
   }
@@ -223,6 +282,21 @@ export class VoiceSessionService {
           typeof p.identificationCompleted !== 'boolean' ||
           !Number.isInteger(p.identificationFlowVersion) ||
           p.identificationFlowVersion < 0
+        )
+          this.invalid();
+      }
+      if (item.appointmentSelection !== undefined) {
+        const selection = item.appointmentSelection;
+        if (
+          !selection ||
+          !(
+            typeof selection.selectedAppointmentId === 'string' ||
+            selection.selectedAppointmentId === null
+          ) ||
+          !Number.isInteger(selection.patientVerificationFlowVersion) ||
+          selection.patientVerificationFlowVersion < 0 ||
+          !Number.isInteger(selection.selectionVersion) ||
+          selection.selectionVersion < 1
         )
           this.invalid();
       }

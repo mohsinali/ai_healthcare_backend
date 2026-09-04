@@ -153,4 +153,50 @@ describeRedis('VoiceSessionService Redis concurrency', () => {
       identificationCompleted: false,
     });
   });
+
+  it('atomically stores and clears verified-patient appointment selection without extending TTL', async () => {
+    const { token } = await create();
+    const key = keyFor(token);
+    await service.replacePatientCandidates(token, ['patient-a']);
+    await service.applyPatientVerification(token, 1, 'patient-a');
+    const initialTtl = await client.pTTL(key);
+    await expect(
+      service.setAppointmentSelection(token, 1, 'patient-a', 'appointment-a'),
+    ).resolves.toBe('updated');
+    await expect(
+      service.getSelectedAppointmentId({
+        token,
+        tenantId: 'tenant-a',
+        channel: VoiceChannel.WEB_WIDGET,
+        channelIdentity: 'widget-a',
+      }),
+    ).resolves.toBe('appointment-a');
+    await expect(
+      service.setAppointmentSelection(token, 1, 'patient-b', 'appointment-b'),
+    ).resolves.toBe('stale');
+    await service.setAppointmentSelection(token, 1, 'patient-a', null);
+    await expect(
+      service.getSelectedAppointmentId({
+        token,
+        tenantId: 'tenant-a',
+        channel: VoiceChannel.WEB_WIDGET,
+        channelIdentity: 'widget-a',
+      }),
+    ).resolves.toBeNull();
+    expect(await client.pTTL(key)).toBeLessThanOrEqual(initialTtl);
+  });
+
+  it('clears a prior appointment selection when identification restarts', async () => {
+    const { token } = await create();
+    await service.replacePatientCandidates(token, ['patient-a']);
+    await service.applyPatientVerification(token, 1, 'patient-a');
+    await service.setAppointmentSelection(
+      token,
+      1,
+      'patient-a',
+      'appointment-a',
+    );
+    await service.replacePatientCandidates(token, ['patient-b']);
+    expect((await service.resolve(token)).appointmentSelection).toBeUndefined();
+  });
 });
