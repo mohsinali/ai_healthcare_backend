@@ -21,6 +21,7 @@ import { VoiceAvailabilitySearchDto } from './dto/voice-availability-search.dto'
 import { VoiceBookAppointmentDto } from './dto/voice-book-appointment.dto';
 import { VoiceAppointmentSearchDto } from './dto/voice-appointment-search.dto';
 import { VoiceRescheduleAppointmentDto } from './dto/voice-reschedule-appointment.dto';
+import { VoiceRescheduleAppointmentResponseDto } from './dto/voice-reschedule-appointment-response.dto';
 import {
   VoiceAppointmentBookingService,
   VoiceBookingResponse,
@@ -66,6 +67,7 @@ export class VoiceDirectoryController {
   @ApiHeader({ name: 'X-Voice-Session-Token', required: true })
   @ApiOkResponse({
     description: 'Voice-safe appointment rescheduling outcome.',
+    type: VoiceRescheduleAppointmentResponseDto,
   })
   async rescheduleAppointment(
     @Headers('x-voice-widget-key') widgetKey: string | undefined,
