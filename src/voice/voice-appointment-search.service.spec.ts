@@ -192,20 +192,44 @@ describe('VoiceAppointmentSearchService', () => {
     expect(field).toBeTruthy();
   });
 
-  it('applies reference, provider and explicit location filters without selected-location scope', async () => {
+  it('normalizes a spoken reference and ignores unrelated optional filters', async () => {
+    prisma.appointment.findMany.mockResolvedValue([
+      appointment({ appointmentNumber: 'APT-01' }),
+    ]);
     await service.search(resolved, {
-      appointmentReference: 'APT-1',
+      appointmentReference: ' apt 01 ',
       providerName: 'Ali Tahir',
       locationName: 'Uptown',
+      endDate: '2027-09-05',
     });
     const where = prisma.appointment.findMany.mock.calls[0][0].where;
     expect(where.appointmentNumber).toEqual(
-      expect.objectContaining({ equals: 'APT-1' }),
+      expect.objectContaining({ equals: 'APT-01' }),
     );
-    expect(where.location).toEqual(
-      expect.objectContaining({ name: expect.any(Object) }),
-    );
-    expect(where.provider.AND).toHaveLength(2);
+    expect(where).not.toHaveProperty('location');
+    expect(where).not.toHaveProperty('provider');
+    expect(where).not.toHaveProperty('OR');
     expect(JSON.stringify(where)).not.toContain('selectedLocationId');
+  });
+
+  it.each(['APT-01', 'APT01', 'apt-01', 'APT 01', '  APT01  '])(
+    'matches the generated reference from spoken variant %s',
+    async (appointmentReference) => {
+      prisma.appointment.findMany.mockResolvedValue([
+        appointment({ appointmentNumber: 'APT-01' }),
+      ]);
+      await expect(
+        service.search(resolved, { appointmentReference }),
+      ).resolves.toMatchObject({ status: 'ok' });
+    },
+  );
+
+  it('uses exact canonical comparison without fuzzy or leading-zero matching', async () => {
+    prisma.appointment.findMany.mockResolvedValue([
+      appointment({ appointmentNumber: 'APT-06' }),
+    ]);
+    await expect(
+      service.search(resolved, { appointmentReference: 'APT-6' }),
+    ).resolves.toMatchObject({ status: 'not_found' });
   });
 });

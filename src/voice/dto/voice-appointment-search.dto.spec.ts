@@ -35,11 +35,37 @@ describe('VoiceAppointmentSearchDto', () => {
     expect(
       await validate(
         plainToInstance(VoiceAppointmentSearchDto, {
-          appointmentReference: 'x'.repeat(101),
+          appointmentReference: `APT${'1'.repeat(30)}`,
           providerName: 'x'.repeat(201),
           locationName: 'x'.repeat(201),
         }),
       ),
     ).toHaveLength(3);
   });
+
+  it.each(['APT06', 'APT-06', 'apt 06', '  APT06  '])(
+    'accepts plausible spoken appointment reference %s',
+    async (appointmentReference) => {
+      expect(
+        await validate(
+          plainToInstance(VoiceAppointmentSearchDto, {
+            appointmentReference,
+          }),
+        ),
+      ).toHaveLength(0);
+    },
+  );
+
+  it.each(['', '   ', 'APT/06', 'APT_06', 'APT--06', 'APT  06', 106])(
+    'rejects empty, unsafe, unreasonable, or non-string reference %p',
+    async (appointmentReference) => {
+      expect(
+        await validate(
+          plainToInstance(VoiceAppointmentSearchDto, {
+            appointmentReference,
+          }),
+        ),
+      ).not.toHaveLength(0);
+    },
+  );
 });

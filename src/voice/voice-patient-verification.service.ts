@@ -1,9 +1,9 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PatientStatus } from '@prisma/client';
+import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { PrismaService } from '../database/prisma.service';
 import {
   normalizePatientName,
-  normalizePatientPhone,
   parsePatientDateOfBirth,
 } from '../patients/patient-normalization';
 import { patientNameSimilarity } from '../patients/patient-name-similarity';
@@ -115,17 +115,17 @@ export class VoicePatientVerificationService {
           status: 'identification_required',
           message: 'Patient identification is required before verification.',
         };
-      const normalizedPhone = normalizePatientPhone(phoneNumber);
-      const matches = await this.prisma.patient.findMany({
+      const candidates = await this.prisma.patient.findMany({
         where: {
           id: { in: state.candidatePatientIds },
           tenantId: resolved.context.tenantId,
           status: PatientStatus.ACTIVE,
-          phone: normalizedPhone,
         },
-        select: { id: true },
-        take: 2,
+        select: { id: true, phone: true },
       });
+      const matches = candidates.filter((candidate) =>
+        candidatePhoneMatches(candidate.phone, phoneNumber),
+      );
       const outcome = await this.sessions.applyPatientVerification(
         resolved.token,
         state.identificationFlowVersion,
@@ -200,4 +200,12 @@ export class VoicePatientVerificationService {
       ? { status: 'verified', patientId: patient.id }
       : { status: 'verification_required' };
   }
+}
+
+function candidatePhoneMatches(storedValue: string, submittedValue: string) {
+  const stored = parsePhoneNumberFromString(storedValue);
+  if (!stored?.isValid() || stored.number !== storedValue || !stored.country)
+    return false;
+  const submitted = parsePhoneNumberFromString(submittedValue, stored.country);
+  return submitted?.isValid() === true && submitted.number === stored.number;
 }

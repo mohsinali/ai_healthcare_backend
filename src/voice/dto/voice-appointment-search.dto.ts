@@ -3,12 +3,17 @@ import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() || undefined : value;
+const trimReference = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
 
 export class VoiceAppointmentSearchDto {
-  @Transform(trim)
+  @Transform(trimReference)
   @IsOptional()
   @IsString()
-  @MaxLength(100)
+  @MaxLength(32)
+  @Matches(/^APT(?:[ -]?)\d+$/i, {
+    message: 'Appointment reference has an invalid format.',
+  })
   appointmentReference?: string;
 
   @Transform(trim)

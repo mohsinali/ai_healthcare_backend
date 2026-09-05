@@ -7,6 +7,10 @@ import { AppointmentStatus } from '@prisma/client';
 import { DateTime } from 'luxon';
 import { FieldValidationException } from '../common/validation/field-validation.exception';
 import { PrismaService } from '../database/prisma.service';
+import {
+  normalizeAppointmentReference,
+  storedAppointmentReference,
+} from '../appointments/appointment-reference';
 import { VoiceSessionService } from '../voice-session/voice-session.service';
 import { VoiceAppointmentSearchDto } from './dto/voice-appointment-search.dto';
 import { VoicePatientVerificationService } from './voice-patient-verification.service';
@@ -56,7 +60,12 @@ export class VoiceAppointmentSearchService {
     dto: VoiceAppointmentSearchDto,
     now = new Date(),
   ): Promise<VoiceAppointmentSearchResponse> {
-    this.validateDates(dto);
+    const normalizedReference = dto.appointmentReference
+      ? normalizeAppointmentReference(dto.appointmentReference)
+      : null;
+    // A reference is a complete lookup criterion. Optional filters are ignored
+    // so unrelated model-supplied values cannot suppress a valid reference.
+    if (!normalizedReference) this.validateDates(dto);
     const verified =
       await this.verification.getVerifiedPatientForBooking(resolved);
     if (verified.status !== 'verified')
@@ -70,14 +79,15 @@ export class VoiceAppointmentSearchService {
       await this.sessions.resolve(resolved.token),
     ).identificationFlowVersion;
     try {
-      const providerTerms = terms(dto.providerName);
-      const localDateScope = dto.startDate
-        ? await this.localDateScope(
-            resolved.context.tenantId,
-            dto.startDate,
-            dto.endDate ?? dto.startDate,
-          )
-        : undefined;
+      const providerTerms = normalizedReference ? [] : terms(dto.providerName);
+      const localDateScope =
+        !normalizedReference && dto.startDate
+          ? await this.localDateScope(
+              resolved.context.tenantId,
+              dto.startDate,
+              dto.endDate ?? dto.startDate,
+            )
+          : undefined;
       const appointments = await this.prisma.appointment.findMany({
         where: {
           tenantId: resolved.context.tenantId,
@@ -85,15 +95,15 @@ export class VoiceAppointmentSearchService {
           status: { in: ELIGIBLE_STATUSES },
           startAt: { gte: now },
           ...(localDateScope ? { OR: localDateScope } : {}),
-          ...(dto.appointmentReference
+          ...(normalizedReference
             ? {
                 appointmentNumber: {
-                  equals: dto.appointmentReference,
+                  equals: storedAppointmentReference(normalizedReference),
                   mode: 'insensitive' as const,
                 },
               }
             : {}),
-          ...(dto.locationName
+          ...(!normalizedReference && dto.locationName
             ? {
                 location: {
                   name: { equals: dto.locationName, mode: 'insensitive' },
@@ -135,9 +145,15 @@ export class VoiceAppointmentSearchService {
         orderBy: [{ startAt: 'asc' }, { id: 'asc' }],
         take: RESULT_LIMIT + 1,
       });
-      const matches = appointments.filter((item) =>
-        this.matchesLocalDates(item.startAt, item.location.timezone, dto),
-      );
+      const matches = normalizedReference
+        ? appointments.filter(
+            (item) =>
+              normalizeAppointmentReference(item.appointmentNumber) ===
+              normalizedReference,
+          )
+        : appointments.filter((item) =>
+            this.matchesLocalDates(item.startAt, item.location.timezone, dto),
+          );
       const selectedId = matches.length === 1 ? matches[0].id : null;
       const update = await this.sessions.setAppointmentSelection(
         resolved.token,

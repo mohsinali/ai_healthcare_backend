@@ -26,9 +26,22 @@ All properties are optional:
 }
 ```
 
-Unknown properties are rejected. Strings are trimmed. Dates are strict,
-real `YYYY-MM-DD` dates and ranges are inclusive. `startDate` alone means that
-single local calendar day. `endDate` without `startDate` is rejected.
+Unknown properties are rejected. Strings are trimmed. Appointment references
+use the generated `APT-<digits>` structure and are compared case-insensitively
+after conservative canonicalization. The expected hyphen may be omitted or
+spoken as a single space, so `APT-06`, `APT06`, `APT 06`, and lowercase forms
+are equivalent. Leading zeroes and every prefix/suffix character remain
+meaningful; unsafe punctuation, partial, suffix-only, and fuzzy matches are not
+accepted.
+
+When `appointmentReference` is present, it is the complete primary lookup
+criterion. Provider, location, and date filters are ignored, including an
+unrelated model-supplied `endDate`, while mandatory trusted-tenant,
+verified-patient, future-date, and eligible-status restrictions remain. Without
+a reference, dates are strict, real `YYYY-MM-DD` dates and ranges are inclusive.
+`startDate` alone means that single local calendar day. `endDate` without
+`startDate` is rejected. A structurally valid but missing or foreign reference
+returns the same privacy-safe `not_found` domain response.
 
 With no filters, the tool searches all future `BOOKED` and `CONFIRMED`
 appointments for the verified patient, across all tenant locations. Results

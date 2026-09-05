@@ -240,7 +240,7 @@ When unlocked, every zero, one, or multiple-match outcome is identical: `verific
 - URL: `https://<backend-public-host>/api/v1/voice/tools/verify-patient`
 - Description: `Verify the previously identified existing patient using the phone number registered with the clinic. The result never reveals which input failed or any patient information.`
 - Body description: `The registered patient phone number supplied by the caller. Do not send caller ID, internal identifiers, or reset/attempt state.`
-- `phoneNumber` (string, required, maximum 30): `Registered international phone number, such as +1 416 555 0123.`
+- `phoneNumber` (string, required, maximum 30): `Registered phone number as naturally supplied by the caller in national or international format.`
 - Effective throttle: 6 requests per 60 seconds per existing NestJS throttler tracking scope.
 
 ```json
@@ -258,15 +258,27 @@ Structured HTTP 200 statuses are:
 
 Exact response messages:
 
-| Status | Message |
-| --- | --- |
-| `verification_required` | `Please provide the phone number registered with the clinic to continue verification.` |
-| `identification_required` | `Patient identification is required before verification.` |
-| `not_verified` | `The patient could not be verified. Please try again.` |
-| `verified` | `Patient verification was successful.` |
-| `manual_verification_required` | `Automated patient verification cannot continue for this conversation.` |
+| Status                         | Message                                                                                |
+| ------------------------------ | -------------------------------------------------------------------------------------- |
+| `verification_required`        | `Please provide the phone number registered with the clinic to continue verification.` |
+| `identification_required`      | `Patient identification is required before verification.`                              |
+| `not_verified`                 | `The patient could not be verified. Please try again.`                                 |
+| `verified`                     | `Patient verification was successful.`                                                 |
+| `manual_verification_required` | `Automated patient verification cannot continue for this conversation.`                |
 
 Identification always returns `verification_required` (unless locked) with the message requesting the registered phone number. No response contains patient data, IDs, candidate counts, submitted values, or session state.
+
+Phone comparison uses `libphonenumber-js`, not manual prefix or suffix matching.
+For each privately stored candidate, the backend validates the stored E.164
+number, derives its trusted numbering region, parses the caller's national or
+international input in that region, and requires exact E.164 equality. This
+supports Pakistani national `03...` input and US/Canadian ten-digit national
+input according to each candidate's own stored region; Pakistan is not an
+application default. Verification succeeds only for exactly one match. Zero,
+multiple, invalid, ambiguous, wrong-country, and suffix-only matches all follow
+the same generic failed-attempt and lockout path without disclosing a region,
+candidate, or phone value. Submitted and normalized numbers are not logged or
+stored in Redis.
 
 ### Session and concurrency rules
 
