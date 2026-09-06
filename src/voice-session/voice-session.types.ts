@@ -10,8 +10,30 @@ export interface VoiceSessionRecord {
   channelIdentity: string;
   selectedLocationId: string | null;
   patientVerification?: PatientVerificationState;
+  appointmentSelection?: AppointmentSelectionState;
+  pendingReschedule?: PendingRescheduleState;
+  pendingCancellation?: PendingCancellationState;
   createdAt: string;
   expiresAt: string;
+}
+
+export interface PendingCancellationState {
+  appointmentUpdatedAt: string;
+  patientVerificationFlowVersion: number;
+  appointmentSelectionVersion: number;
+}
+
+export interface PendingRescheduleState {
+  appointmentDate: string;
+  startTime: string;
+  patientVerificationFlowVersion: number;
+  appointmentSelectionVersion: number;
+}
+
+export interface AppointmentSelectionState {
+  selectedAppointmentId: string | null;
+  patientVerificationFlowVersion: number;
+  selectionVersion: number;
 }
 
 export interface PatientVerificationState {

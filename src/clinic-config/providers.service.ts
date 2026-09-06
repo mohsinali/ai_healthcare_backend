@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, SequenceType } from '@prisma/client';
+import { DayOfWeek, Prisma, SequenceType } from '@prisma/client';
 import { FieldValidationException } from '../common/validation/field-validation.exception';
 import { PrismaService } from '../database/prisma.service';
 import { SequenceService } from '../sequences/sequence.service';
@@ -13,9 +13,22 @@ import {
   EditProviderDto,
   ListConfigurationDto,
   ReplaceAssignmentsDto,
+  ReplaceProviderWorkingPeriodsDto,
   UpdateProviderDto,
 } from './dto/clinic-config.dto';
 import { optionalEmail, optionalText, phone } from './clinic-config.helpers';
+import {
+  findPeriodsOutsideLocationHours,
+  findProviderPeriodOverlaps,
+  lockLocationSchedule,
+  scheduleConflictCodes,
+  ScheduleInvariantException,
+  sortSchedulePeriods,
+} from './scheduling-invariants';
+
+const weekdayOrder = new Map(
+  Object.values(DayOfWeek).map((day, index) => [day, index]),
+);
 @Injectable()
 export class ProvidersService {
   constructor(
@@ -115,16 +128,7 @@ export class ProvidersService {
     const { locationIds, serviceIds, ...provider } = dto;
     await this.prisma.$transaction(async (tx) => {
       await tx.provider.update({ where: { id }, data: this.data(provider) });
-      await tx.providerLocation.deleteMany({
-        where: { tenantId: ctx.tenantId, providerId: id },
-      });
-      await tx.providerLocation.createMany({
-        data: locationIds.map((locationId) => ({
-          tenantId: ctx.tenantId,
-          providerId: id,
-          locationId,
-        })),
-      });
+      await this.replaceLocationAssignments(tx, ctx.tenantId, id, locationIds);
       await tx.providerService.deleteMany({
         where: { tenantId: ctx.tenantId, providerId: id },
       });
@@ -149,6 +153,124 @@ export class ProvidersService {
   }
   replaceServices(ctx: TenantContext, id: string, dto: ReplaceAssignmentsDto) {
     return this.replace(ctx, id, dto, 'service');
+  }
+  async workingPeriods(ctx: TenantContext, id: string) {
+    const provider = await this.prisma.provider.findFirst({
+      where: { id, tenantId: ctx.tenantId },
+      select: { id: true },
+    });
+    if (!provider) throw new NotFoundException('Provider not found.');
+
+    const assignments = await this.prisma.providerLocation.findMany({
+      where: { tenantId: ctx.tenantId, providerId: id },
+      select: {
+        location: {
+          select: {
+            id: true,
+            name: true,
+            timezone: true,
+            status: true,
+            businessHours: {
+              select: {
+                dayOfWeek: true,
+                isClosed: true,
+                openTime: true,
+                closeTime: true,
+              },
+            },
+          },
+        },
+        providerWorkingPeriods: {
+          select: {
+            dayOfWeek: true,
+            startTime: true,
+            endTime: true,
+            isActive: true,
+          },
+        },
+      },
+      orderBy: [{ location: { name: 'asc' } }, { locationId: 'asc' }],
+    });
+
+    return assignments.map(({ location, providerWorkingPeriods }) => ({
+      ...location,
+      businessHours: this.sortByWeekday(location.businessHours),
+      periods: this.sortPeriods(providerWorkingPeriods),
+    }));
+  }
+  async replaceWorkingPeriods(
+    ctx: TenantContext,
+    providerId: string,
+    locationId: string,
+    dto: ReplaceProviderWorkingPeriodsDto,
+  ) {
+    for (const period of dto.periods) {
+      if (period.startTime >= period.endTime)
+        throw new BadRequestException(
+          'Working period startTime must be before endTime.',
+        );
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await lockLocationSchedule(tx, ctx.tenantId, locationId);
+        const location = await this.assertProviderLocation(
+          tx,
+          ctx.tenantId,
+          providerId,
+          locationId,
+        );
+        const overlaps = findProviderPeriodOverlaps(dto.periods, locationId);
+        if (overlaps.length)
+          throw new ScheduleInvariantException(
+            scheduleConflictCodes.overlap,
+            overlaps,
+          );
+        const outsideHours = findPeriodsOutsideLocationHours(
+          dto.periods,
+          location.businessHours,
+          locationId,
+          location.status,
+        );
+        if (outsideHours.length)
+          throw new ScheduleInvariantException(
+            scheduleConflictCodes.outsideHours,
+            outsideHours,
+          );
+        await tx.providerWorkingPeriod.deleteMany({
+          where: { tenantId: ctx.tenantId, providerId, locationId },
+        });
+        if (dto.periods.length)
+          await tx.providerWorkingPeriod.createMany({
+            data: dto.periods.map((period) => ({
+              tenantId: ctx.tenantId,
+              providerId,
+              locationId,
+              dayOfWeek: period.dayOfWeek,
+              startTime: period.startTime,
+              endTime: period.endTime,
+              isActive: period.isActive ?? true,
+            })),
+          });
+        const stored = await tx.providerWorkingPeriod.findMany({
+          where: { tenantId: ctx.tenantId, providerId, locationId },
+          select: {
+            dayOfWeek: true,
+            startTime: true,
+            endTime: true,
+            isActive: true,
+          },
+        });
+        return this.sortPeriods(stored);
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === 'P2002' || error.code === 'P2004')
+      )
+        throw new BadRequestException('Working periods are invalid.');
+      throw error;
+    }
   }
   private async related(
     ctx: TenantContext,
@@ -190,18 +312,9 @@ export class ProvidersService {
     if (count !== dto.ids.length)
       throw new NotFoundException(`One or more ${type}s were not found.`);
     if (type === 'location')
-      await this.prisma.$transaction([
-        this.prisma.providerLocation.deleteMany({
-          where: { tenantId: ctx.tenantId, providerId: id },
-        }),
-        this.prisma.providerLocation.createMany({
-          data: dto.ids.map((locationId) => ({
-            tenantId: ctx.tenantId,
-            providerId: id,
-            locationId,
-          })),
-        }),
-      ]);
+      await this.prisma.$transaction((tx) =>
+        this.replaceLocationAssignments(tx, ctx.tenantId, id, dto.ids),
+      );
     else
       await this.prisma.$transaction([
         this.prisma.providerService.deleteMany({
@@ -216,6 +329,78 @@ export class ProvidersService {
         }),
       ]);
     return this.related(ctx, id, type);
+  }
+  private async assertProviderLocation(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    providerId: string,
+    locationId: string,
+  ) {
+    const provider = await tx.provider.findFirst({
+      where: { id: providerId, tenantId },
+      select: { id: true },
+    });
+    if (!provider) throw new NotFoundException('Provider not found.');
+    const location = await tx.location.findFirst({
+      where: { id: locationId, tenantId },
+      select: {
+        id: true,
+        status: true,
+        businessHours: {
+          select: {
+            dayOfWeek: true,
+            isClosed: true,
+            openTime: true,
+            closeTime: true,
+          },
+        },
+      },
+    });
+    if (!location) throw new NotFoundException('Location not found.');
+    const assignment = await tx.providerLocation.findFirst({
+      where: { tenantId, providerId, locationId },
+      select: { id: true },
+    });
+    if (!assignment)
+      throw new NotFoundException('Provider location assignment not found.');
+    return location;
+  }
+  private async replaceLocationAssignments(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    providerId: string,
+    locationIds: string[],
+  ) {
+    const existing = await tx.providerLocation.findMany({
+      where: { tenantId, providerId },
+      select: { locationId: true },
+    });
+    const requested = new Set(locationIds);
+    const existingIds = new Set(existing.map(({ locationId }) => locationId));
+    const removed = existing
+      .map(({ locationId }) => locationId)
+      .filter((locationId) => !requested.has(locationId));
+    const added = locationIds.filter(
+      (locationId) => !existingIds.has(locationId),
+    );
+    if (removed.length)
+      await tx.providerLocation.deleteMany({
+        where: { tenantId, providerId, locationId: { in: removed } },
+      });
+    if (added.length)
+      await tx.providerLocation.createMany({
+        data: added.map((locationId) => ({ tenantId, providerId, locationId })),
+      });
+  }
+  private sortByWeekday<T extends { dayOfWeek: DayOfWeek }>(values: T[]) {
+    return [...values].sort(
+      (a, b) => weekdayOrder.get(a.dayOfWeek)! - weekdayOrder.get(b.dayOfWeek)!,
+    );
+  }
+  private sortPeriods<
+    T extends { dayOfWeek: DayOfWeek; startTime: string; endTime: string },
+  >(periods: T[]) {
+    return sortSchedulePeriods(periods);
   }
   private data(
     dto: CreateProviderDto | UpdateProviderDto,

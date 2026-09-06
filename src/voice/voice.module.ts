@@ -20,6 +20,9 @@ import { VoiceToolSessionService } from './voice-tool-session.service';
 import { VoicePatientVerificationController } from './voice-patient-verification.controller';
 import { VoicePatientVerificationService } from './voice-patient-verification.service';
 import { VoiceAppointmentBookingService } from './voice-appointment-booking.service';
+import { VoiceAppointmentSearchService } from './voice-appointment-search.service';
+import { VoiceAppointmentReschedulingService } from './voice-appointment-rescheduling.service';
+import { VoiceAppointmentCancellationService } from './voice-appointment-cancellation.service';
 
 @Module({
   imports: [
@@ -48,6 +51,9 @@ import { VoiceAppointmentBookingService } from './voice-appointment-booking.serv
     VoiceToolSessionService,
     VoicePatientVerificationService,
     VoiceAppointmentBookingService,
+    VoiceAppointmentSearchService,
+    VoiceAppointmentReschedulingService,
+    VoiceAppointmentCancellationService,
   ],
   exports: [VoiceBootstrapService, VoicePatientVerificationService],
 })

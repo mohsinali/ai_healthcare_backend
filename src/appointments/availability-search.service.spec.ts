@@ -24,13 +24,21 @@ describe('AvailabilitySearchService', () => {
       hours?: typeof hours;
       duration?: number;
       appointments?: Array<{ providerId: string; startAt: Date; endAt: Date }>;
+      periods?: Array<{
+        providerId: string;
+        dayOfWeek: DayOfWeek;
+        startTime: string;
+        endTime: string;
+        isActive: boolean;
+      }>;
+      timezone?: string;
     } = {},
   ) {
     const prisma = {
       location: {
         findFirst: jest.fn().mockResolvedValue({
           name: 'Downtown Clinic',
-          timezone: 'America/New_York',
+          timezone: options.timezone ?? 'America/New_York',
           businessHours: options.hours ?? hours,
         }),
       },
@@ -60,6 +68,18 @@ describe('AvailabilitySearchService', () => {
       },
       appointment: {
         findMany: jest.fn().mockResolvedValue(options.appointments ?? []),
+      },
+      providerWorkingPeriod: {
+        findMany: jest.fn().mockResolvedValue(
+          options.periods ??
+            ['provider-a', 'provider-b'].map((providerId) => ({
+              providerId,
+              dayOfWeek: DayOfWeek.TUESDAY,
+              startTime: '09:00',
+              endTime: '18:00',
+              isActive: true,
+            })),
+        ),
       },
     };
     return { prisma, service: new AvailabilitySearchService(prisma as never) };
@@ -130,6 +150,38 @@ describe('AvailabilitySearchService', () => {
     ).toBeDefined();
   });
 
+  it('blocks a provider appointment without restricting conflicts to location', async () => {
+    const { service, prisma } = setup({
+      appointments: [
+        {
+          providerId: 'provider-a',
+          startAt: new Date('2026-09-01T13:00:00Z'),
+          endAt: new Date('2026-09-01T13:30:00Z'),
+        },
+      ],
+    });
+    const result = await service.search({
+      ...input,
+      providerIds: ['provider-a'],
+    });
+    expect(
+      result.slots.some(
+        (slot) =>
+          slot.localTime === '09:00' && slot.providerId === 'provider-a',
+      ),
+    ).toBe(false);
+    expect(prisma.appointment.findMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-a',
+        providerId: { in: ['provider-b', 'provider-a'] },
+        status: { in: ['BOOKED', 'CONFIRMED'] },
+        startAt: { lt: new Date('2026-09-02T04:00:00.000Z') },
+        endAt: { gt: new Date('2026-09-01T04:00:00.000Z') },
+      },
+      select: { providerId: true, startAt: true, endAt: true },
+    });
+  });
+
   it.each([
     ['morning', '09:00'],
     ['afternoon', '12:00'],
@@ -155,7 +207,6 @@ describe('AvailabilitySearchService', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           tenantId: 'tenant-a',
-          locationId: 'location-a',
           status: { in: ['BOOKED', 'CONFIRMED'] },
           startAt: { lt: new Date('2026-09-08T04:00:00.000Z') },
         }),
@@ -204,10 +255,147 @@ describe('AvailabilitySearchService', () => {
     );
   });
 
+  it('keeps recurring 09:00 at local 09:00 across a DST offset change', async () => {
+    const sundayPeriod = {
+      providerId: 'provider-a',
+      dayOfWeek: DayOfWeek.SUNDAY,
+      startTime: '09:00',
+      endTime: '10:00',
+      isActive: true,
+    };
+    const sundayHours = [
+      {
+        ...hours[0],
+        dayOfWeek: DayOfWeek.SUNDAY,
+        openTime: '09:00',
+        closeTime: '10:00',
+      },
+    ];
+    const { service } = setup({
+      hours: sundayHours,
+      periods: [sundayPeriod],
+    });
+    const before = await service.search({
+      ...input,
+      providerIds: ['provider-a'],
+      startDate: '2026-10-25',
+      endDate: '2026-10-25',
+    });
+    const after = await service.search({
+      ...input,
+      providerIds: ['provider-a'],
+      startDate: '2026-11-08',
+      endDate: '2026-11-08',
+    });
+    expect(before.slots[0]).toMatchObject({
+      localTime: '09:00',
+      startsAt: '2026-10-25T09:00:00.000-04:00',
+    });
+    expect(after.slots[0]).toMatchObject({
+      localTime: '09:00',
+      startsAt: '2026-11-08T09:00:00.000-05:00',
+    });
+  });
+
+  it('converts each location schedule with that location timezone', async () => {
+    const utc = setup({ timezone: 'UTC' });
+    const newYork = setup({ timezone: 'America/New_York' });
+    const utcResult = await utc.service.search({
+      ...input,
+      providerIds: ['provider-a'],
+    });
+    const newYorkResult = await newYork.service.search({
+      ...input,
+      providerIds: ['provider-a'],
+    });
+    expect(utcResult.slots[0].startsAt).toBe('2026-09-01T09:00:00.000Z');
+    expect(newYorkResult.slots[0].startsAt).toBe(
+      '2026-09-01T09:00:00.000-04:00',
+    );
+  });
+
   it('returns no slots without reading appointments when there are no eligible providers', async () => {
     const { service, prisma } = setup();
     prisma.provider.findMany.mockResolvedValue([]);
     await expect(service.search(input)).resolves.toMatchObject({ slots: [] });
     expect(prisma.appointment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('returns no slots when location hours exist but provider schedules do not', async () => {
+    const { service } = setup({ periods: [] });
+    await expect(service.search(input)).resolves.toMatchObject({ slots: [] });
+  });
+
+  it('loads active periods once in tenant and location scope', async () => {
+    const { service, prisma } = setup();
+    await service.search(input);
+    expect(prisma.providerWorkingPeriod.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.providerWorkingPeriod.findMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-a',
+        locationId: 'location-a',
+        providerId: { in: ['provider-b', 'provider-a'] },
+        dayOfWeek: { in: [DayOfWeek.TUESDAY] },
+        isActive: true,
+      },
+      select: expect.any(Object),
+    });
+  });
+
+  it('merges adjacent periods so a service may cross their boundary', async () => {
+    const { service } = setup({
+      duration: 60,
+      periods: [
+        {
+          providerId: 'provider-a',
+          dayOfWeek: DayOfWeek.TUESDAY,
+          startTime: '09:00',
+          endTime: '10:00',
+          isActive: true,
+        },
+        {
+          providerId: 'provider-a',
+          dayOfWeek: DayOfWeek.TUESDAY,
+          startTime: '10:00',
+          endTime: '11:00',
+          isActive: true,
+        },
+      ],
+    });
+    const result = await service.search({
+      ...input,
+      providerIds: ['provider-a'],
+    });
+    expect(result.slots.map((slot) => slot.localTime)).toContain('09:30');
+  });
+
+  it('does not let an appointment bridge a positive split-period gap', async () => {
+    const { service } = setup({
+      duration: 60,
+      periods: [
+        {
+          providerId: 'provider-a',
+          dayOfWeek: DayOfWeek.TUESDAY,
+          startTime: '09:00',
+          endTime: '10:00',
+          isActive: true,
+        },
+        {
+          providerId: 'provider-a',
+          dayOfWeek: DayOfWeek.TUESDAY,
+          startTime: '10:30',
+          endTime: '11:30',
+          isActive: true,
+        },
+      ],
+    });
+    const result = await service.search({
+      ...input,
+      providerIds: ['provider-a'],
+    });
+    expect(result.slots.map((slot) => slot.localTime)).toEqual([
+      '09:00',
+      '10:30',
+    ]);
   });
 });

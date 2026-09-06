@@ -253,7 +253,9 @@ describe('VoicePatientVerificationService', () => {
       candidatePatientIds: ['patient-a', 'patient-b'],
       identificationFlowVersion: 4,
     });
-    prisma.patient.findMany.mockResolvedValue([{ id: 'patient-a' }]);
+    prisma.patient.findMany.mockResolvedValue([
+      { id: 'patient-a', phone: '+14165550123' },
+    ]);
     sessions.applyPatientVerification.mockResolvedValue('verified');
     await expect(service.verify(resolved, '+1 416 555 0123')).resolves.toEqual({
       status: 'verified',
@@ -264,15 +266,74 @@ describe('VoicePatientVerificationService', () => {
         id: { in: ['patient-a', 'patient-b'] },
         tenantId: 'tenant-a',
         status: PatientStatus.ACTIVE,
-        phone: '+14165550123',
       },
-      select: { id: true },
-      take: 2,
+      select: { id: true, phone: true },
     });
     expect(sessions.applyPatientVerification).toHaveBeenCalledWith(
       'token',
       4,
       'patient-a',
+    );
+  });
+
+  it.each([
+    ['exact Pakistani E.164', '+923343683084', '+923343683084'],
+    ['Pakistani national', '+923343683084', '03343683084'],
+    ['Pakistani national with spaces', '+923343683084', '0334 368 3084'],
+    ['Pakistani national with hyphen', '+923343683084', '0334-3683084'],
+    ['Pakistani national with parentheses', '+923343683084', '(0334) 3683084'],
+    ['Pakistani international with spaces', '+923343683084', '+92 334 3683084'],
+    ['Canadian national', '+14165550123', '416 555 0123'],
+    ['US national', '+12025550123', '(202) 555-0123'],
+  ])('verifies %s by exact E.164 equivalence', async (_case, stored, input) => {
+    sessions.patientVerification.mockReturnValue({
+      locked: false,
+      identificationCompleted: true,
+      candidatePatientIds: ['patient-a'],
+      identificationFlowVersion: 4,
+    });
+    prisma.patient.findMany.mockResolvedValue([
+      { id: 'patient-a', phone: stored },
+    ]);
+    sessions.applyPatientVerification.mockResolvedValue('verified');
+
+    await expect(service.verify(resolved, input)).resolves.toMatchObject({
+      status: 'verified',
+    });
+    expect(sessions.applyPatientVerification).toHaveBeenCalledWith(
+      'token',
+      4,
+      'patient-a',
+    );
+  });
+
+  it.each([
+    ['wrong number', '+923343683084', '03001234567'],
+    ['invalid number', '+923343683084', 'not-even-a-phone'],
+    ['suffix only', '+923343683084', '3683084'],
+    ['wrong country', '+923343683084', '+14165550123'],
+  ])('fails generically for %s', async (_case, stored, input) => {
+    sessions.patientVerification.mockReturnValue({
+      locked: false,
+      identificationCompleted: true,
+      candidatePatientIds: ['patient-a'],
+      identificationFlowVersion: 4,
+    });
+    prisma.patient.findMany.mockResolvedValue([
+      { id: 'patient-a', phone: stored },
+    ]);
+    sessions.applyPatientVerification.mockResolvedValue('not_verified');
+
+    const response = await service.verify(resolved, input);
+    expect(response).toEqual({
+      status: 'not_verified',
+      message: 'The patient could not be verified. Please try again.',
+    });
+    expect(JSON.stringify(response)).not.toMatch(/Pakistan|Canada|United|92|1/);
+    expect(sessions.applyPatientVerification).toHaveBeenCalledWith(
+      'token',
+      4,
+      null,
     );
   });
 
@@ -284,8 +345,8 @@ describe('VoicePatientVerificationService', () => {
       identificationFlowVersion: 1,
     });
     prisma.patient.findMany.mockResolvedValue([
-      { id: 'patient-a' },
-      { id: 'patient-b' },
+      { id: 'patient-a', phone: '+14165550123' },
+      { id: 'patient-b', phone: '+14165550123' },
     ]);
     sessions.applyPatientVerification.mockResolvedValue('not_verified');
     await expect(
@@ -332,7 +393,9 @@ describe('VoicePatientVerificationService', () => {
     sessions.resolve.mockResolvedValue({});
     prisma.patient.findMany
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ id: 'corrected-patient' }]);
+      .mockResolvedValueOnce([
+        { id: 'corrected-patient', phone: '+14165550123' },
+      ]);
     sessions.applyPatientVerification
       .mockResolvedValueOnce('stale')
       .mockResolvedValueOnce('verified');

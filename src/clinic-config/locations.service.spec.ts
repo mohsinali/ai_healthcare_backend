@@ -1,6 +1,7 @@
-import { TenantRole } from '@prisma/client';
+import { DayOfWeek, TenantRole } from '@prisma/client';
 import { FieldValidationException } from '../common/validation/field-validation.exception';
 import { LocationsService } from './locations.service';
+import { scheduleConflictCodes } from './scheduling-invariants';
 
 describe('LocationsService', () => {
   const context = {
@@ -20,6 +21,7 @@ describe('LocationsService', () => {
       closeTime: string | null;
     }> = [];
     const tx = {
+      $executeRaw: jest.fn(),
       location: {
         create: jest.fn().mockResolvedValue(created),
         findUniqueOrThrow: jest.fn().mockResolvedValue(complete),
@@ -58,6 +60,7 @@ describe('LocationsService', () => {
 
     expect(result).toBe(complete);
     expect(tx.location.create).toHaveBeenCalledTimes(1);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
     expect(tx.location.create).toHaveBeenCalledWith(
       expect.objectContaining({
         // Jest asymmetric matchers are intentionally typed as any.
@@ -149,4 +152,150 @@ describe('LocationsService', () => {
       });
     },
   );
+
+  describe('business-hours schedule protection', () => {
+    const hours = Object.values(DayOfWeek).map((dayOfWeek) => ({
+      dayOfWeek,
+      isClosed:
+        dayOfWeek === DayOfWeek.SATURDAY || dayOfWeek === DayOfWeek.SUNDAY,
+      openTime:
+        dayOfWeek === DayOfWeek.SATURDAY || dayOfWeek === DayOfWeek.SUNDAY
+          ? null
+          : '09:00',
+      closeTime:
+        dayOfWeek === DayOfWeek.SATURDAY || dayOfWeek === DayOfWeek.SUNDAY
+          ? null
+          : '17:00',
+    }));
+
+    function setup(periods: unknown[] = []) {
+      const tx = {
+        $executeRaw: jest.fn(),
+        location: {
+          findFirst: jest.fn().mockResolvedValue({
+            status: 'ACTIVE',
+            businessHours: hours,
+          }),
+          update: jest.fn(),
+        },
+        providerWorkingPeriod: {
+          findMany: jest.fn().mockResolvedValue(periods),
+        },
+        businessHour: { update: jest.fn() },
+        locationService: { deleteMany: jest.fn(), createMany: jest.fn() },
+      };
+      const prisma = {
+        location: {
+          findFirst: jest.fn().mockResolvedValue({
+            businessHours: hours,
+            providerLocations: [],
+            locationServices: [],
+            _count: { providerLocations: 0, locationServices: 0 },
+          }),
+        },
+        businessHour: { findMany: jest.fn().mockResolvedValue(hours) },
+        $transaction: jest.fn((work: (client: typeof tx) => unknown) =>
+          work(tx),
+        ),
+      };
+      return {
+        tx,
+        prisma,
+        service: new LocationsService(prisma as never, {} as never),
+      };
+    }
+
+    it('locks before validation reads and applies a compatible update', async () => {
+      const { tx, service } = setup([
+        {
+          providerId: 'provider-a',
+          dayOfWeek: DayOfWeek.MONDAY,
+          startTime: '10:00',
+          endTime: '16:00',
+          isActive: true,
+          providerLocation: {
+            provider: {
+              displayName: 'Dr A',
+              firstName: 'A',
+              lastName: 'Doctor',
+            },
+          },
+        },
+      ]);
+
+      await service.updateBusinessHours(context, 'location-id', { hours });
+
+      expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+      expect(tx.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        tx.location.findFirst.mock.invocationCallOrder[0],
+      );
+      expect(tx.providerWorkingPeriod.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            tenantId: 'tenant-id',
+            locationId: 'location-id',
+            isActive: true,
+          },
+        }),
+      );
+      expect(tx.businessHour.update).toHaveBeenCalledTimes(7);
+    });
+
+    it('rejects incompatible hours before mutation with structured details', async () => {
+      const { tx, service } = setup([
+        {
+          providerId: 'provider-a',
+          dayOfWeek: DayOfWeek.MONDAY,
+          startTime: '09:00',
+          endTime: '12:00',
+          isActive: true,
+          providerLocation: {
+            provider: {
+              displayName: null,
+              firstName: 'Ada',
+              lastName: 'Lovelace',
+            },
+          },
+        },
+      ]);
+      const reduced = hours.map((hour) =>
+        hour.dayOfWeek === DayOfWeek.MONDAY
+          ? { ...hour, openTime: '10:00' }
+          : hour,
+      );
+
+      const promise = service.updateBusinessHours(context, 'location-id', {
+        hours: reduced,
+      });
+      await expect(promise).rejects.toMatchObject({
+        response: {
+          code: scheduleConflictCodes.locationHours,
+          conflicts: [
+            expect.objectContaining({
+              providerId: 'provider-a',
+              providerName: 'Ada Lovelace',
+              locationId: 'location-id',
+            }),
+          ],
+        },
+      });
+      expect(tx.businessHour.update).not.toHaveBeenCalled();
+    });
+
+    it('protects the unified edit path with the same lock and validation', async () => {
+      const { tx, prisma, service } = setup();
+      (prisma as never as { service: { count: jest.Mock } }).service = {
+        count: jest.fn().mockResolvedValue(0),
+      };
+
+      await service.edit(context, 'location-id', {
+        businessHours: hours,
+        serviceIds: [],
+      });
+
+      expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+      expect(tx.providerWorkingPeriod.findMany).toHaveBeenCalledTimes(1);
+      expect(tx.location.update).toHaveBeenCalledTimes(1);
+    });
+  });
 });

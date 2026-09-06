@@ -1,0 +1,492 @@
+import { DayOfWeek } from '@prisma/client';
+import { AppointmentsService } from './appointments.service';
+import { appointmentSchedulingCodes } from './appointment-scheduling';
+
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return -- Jest mock calls and asymmetric matchers are typed as any. */
+
+describe('AppointmentsService protected scheduling writes', () => {
+  const context = { tenantId: 'tenant-a' } as never;
+  const ids = {
+    appointmentId: 'appointment-a',
+    locationId: 'location-a',
+    providerId: 'provider-z',
+    serviceId: 'service-a',
+    patientId: 'patient-a',
+  };
+  const hours = [
+    {
+      dayOfWeek: DayOfWeek.THURSDAY,
+      isClosed: false,
+      openTime: '09:00',
+      closeTime: '17:00',
+    },
+  ];
+
+  function setup(
+    options: {
+      periods?: Array<{
+        dayOfWeek: DayOfWeek;
+        startTime: string;
+        endTime: string;
+        isActive: boolean;
+      }>;
+      conflict?: boolean;
+      current?: Record<string, unknown>;
+    } = {},
+  ) {
+    const current = {
+      id: ids.appointmentId,
+      appointmentNumber: 'APT-001',
+      tenantId: 'tenant-a',
+      patientId: ids.patientId,
+      locationId: ids.locationId,
+      providerId: ids.providerId,
+      serviceId: ids.serviceId,
+      startAt: new Date('2026-09-10T13:00:00Z'),
+      endAt: new Date('2026-09-10T13:30:00Z'),
+      status: 'BOOKED',
+      updatedAt: new Date('2026-09-01T00:00:00Z'),
+      location: { name: 'Clinic', timezone: 'America/New_York' },
+      provider: {
+        firstName: 'Ada',
+        lastName: 'Doctor',
+        displayName: 'Dr Ada',
+        title: null,
+      },
+      service: { name: 'Consultation' },
+      ...options.current,
+    };
+    const tx = {
+      $executeRaw: jest.fn(),
+      location: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: ids.locationId,
+          name: 'Clinic',
+          status: 'ACTIVE',
+          timezone: 'America/New_York',
+          businessHours: hours,
+          locationServices: [{ id: 'location-service' }],
+        }),
+      },
+      provider: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: ids.providerId,
+          firstName: 'Ada',
+          lastName: 'Doctor',
+          displayName: 'Dr Ada',
+          title: null,
+          status: 'ACTIVE',
+          providerLocations: [{ id: 'provider-location' }],
+          providerServices: [{ id: 'provider-service' }],
+        }),
+      },
+      service: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: ids.serviceId,
+          name: 'Consultation',
+          status: 'ACTIVE',
+          durationMinutes: 30,
+        }),
+      },
+      patient: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: ids.patientId,
+          status: 'ACTIVE',
+        }),
+      },
+      providerWorkingPeriod: {
+        findMany: jest.fn().mockResolvedValue(
+          options.periods ?? [
+            {
+              dayOfWeek: DayOfWeek.THURSDAY,
+              startTime: '09:00',
+              endTime: '17:00',
+              isActive: true,
+            },
+          ],
+        ),
+      },
+      appointment: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce(current)
+          .mockResolvedValue(options.conflict ? { id: 'conflict' } : null),
+        create: jest.fn().mockResolvedValue({ id: ids.appointmentId }),
+        update: jest.fn().mockImplementation(({ data }) =>
+          Promise.resolve({
+            ...current,
+            ...data,
+            status: data.status ?? current.status,
+            updatedAt: new Date('2026-09-01T00:00:01Z'),
+          }),
+        ),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
+      appointment: {
+        findFirst: jest.fn().mockResolvedValue({
+          ...current,
+          location: { timezone: 'America/New_York' },
+          provider: {},
+          service: {},
+          patient: {},
+          events: [],
+        }),
+      },
+    };
+    const service = new AppointmentsService(
+      prisma as never,
+      {
+        next: jest.fn().mockResolvedValue({ formatted: 'APT-001' }),
+      } as never,
+    );
+    return { service, prisma, tx };
+  }
+
+  const createDto = {
+    patientId: ids.patientId,
+    locationId: ids.locationId,
+    providerId: ids.providerId,
+    serviceId: ids.serviceId,
+    start: '2026-09-10T16:30:00-04:00',
+  };
+
+  it('books inside a period and allows an exact period-end boundary', async () => {
+    const { service, tx } = setup({
+      periods: [
+        {
+          dayOfWeek: DayOfWeek.THURSDAY,
+          startTime: '16:00',
+          endTime: '17:00',
+          isActive: true,
+        },
+      ],
+    });
+    // Creation conflict lookup is the first appointment lookup in this path.
+    tx.appointment.findFirst.mockReset().mockResolvedValue(null);
+    await service.create(context, 'user-a', createDto);
+    expect(tx.appointment.create).toHaveBeenCalledTimes(1);
+    expect(tx.appointment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          endAt: new Date('2026-09-10T21:00:00.000Z'),
+        }),
+      }),
+    );
+  });
+
+  it('acquires location then provider locks before schedule and conflict reads', async () => {
+    const { service, tx } = setup();
+    tx.appointment.findFirst.mockReset().mockResolvedValue(null);
+    await service.create(context, 'user-a', {
+      ...createDto,
+      start: '2026-09-10T10:00:00-04:00',
+    });
+    expect(tx.$executeRaw.mock.calls.map((call) => call[1])).toEqual([
+      'clinic-config:location-schedule:tenant-a:location-a',
+      'appointment-schedule:tenant-a:provider-z',
+    ]);
+    expect(tx.$executeRaw.mock.invocationCallOrder[1]).toBeLessThan(
+      tx.providerWorkingPeriod.findMany.mock.invocationCallOrder[0],
+    );
+    expect(tx.$executeRaw.mock.invocationCallOrder[1]).toBeLessThan(
+      tx.appointment.findFirst.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('rejects a missing schedule before conflict lookup or insertion', async () => {
+    const { service, tx } = setup({ periods: [] });
+    tx.appointment.findFirst.mockReset().mockResolvedValue(null);
+    const promise = service.create(context, 'user-a', createDto);
+    await expect(promise).rejects.toMatchObject({
+      response: { code: appointmentSchedulingCodes.providerNotScheduled },
+    });
+    expect(tx.appointment.findFirst).not.toHaveBeenCalled();
+    expect(tx.appointment.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a slot that bridges a positive split-period gap', async () => {
+    const { service, tx } = setup({
+      periods: [
+        {
+          dayOfWeek: DayOfWeek.THURSDAY,
+          startTime: '09:00',
+          endTime: '10:00',
+          isActive: true,
+        },
+        {
+          dayOfWeek: DayOfWeek.THURSDAY,
+          startTime: '10:15',
+          endTime: '12:00',
+          isActive: true,
+        },
+      ],
+    });
+    tx.appointment.findFirst.mockReset().mockResolvedValue(null);
+    await expect(
+      service.create(context, 'user-a', {
+        ...createDto,
+        start: '2026-09-10T09:45:00-04:00',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        code: appointmentSchedulingCodes.outsideProviderSchedule,
+      },
+    });
+    expect(tx.appointment.create).not.toHaveBeenCalled();
+  });
+
+  it('queries provider-wide UTC conflicts and returns safe details', async () => {
+    const { service, tx } = setup({ conflict: true });
+    tx.appointment.findFirst.mockReset().mockResolvedValue({ id: 'conflict' });
+    const promise = service.create(context, 'user-a', {
+      ...createDto,
+      start: '2026-09-10T10:00:00-04:00',
+    });
+    await expect(promise).rejects.toMatchObject({
+      response: {
+        code: appointmentSchedulingCodes.slotUnavailable,
+        details: {
+          providerId: ids.providerId,
+          locationId: ids.locationId,
+          reason: appointmentSchedulingCodes.providerConflict,
+        },
+      },
+    });
+    expect(tx.appointment.findFirst).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-a',
+        providerId: ids.providerId,
+        status: { in: ['BOOKED', 'CONFIRMED'] },
+        startAt: { lt: new Date('2026-09-10T14:30:00.000Z') },
+        endAt: { gt: new Date('2026-09-10T14:00:00.000Z') },
+      },
+      select: { id: true },
+    });
+    expect(tx.appointment.create).not.toHaveBeenCalled();
+  });
+
+  it('reschedules under record, location, and sorted old/new provider locks and excludes itself', async () => {
+    const { service, tx } = setup();
+    await service.reschedule(context, 'user-a', ids.appointmentId, {
+      providerId: 'provider-a',
+      start: '2026-09-10T11:00:00-04:00',
+    });
+    expect(tx.$executeRaw.mock.calls.map((call) => call[1])).toEqual([
+      'appointment-record:tenant-a:appointment-a',
+      'clinic-config:location-schedule:tenant-a:location-a',
+      'appointment-schedule:tenant-a:provider-a',
+      'appointment-schedule:tenant-a:provider-z',
+    ]);
+    expect(tx.appointment.findFirst).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { not: ids.appointmentId } }),
+      }),
+    );
+    expect(tx.appointment.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not update when reschedule conflict validation fails', async () => {
+    const { service, tx } = setup({ conflict: true });
+    await expect(
+      service.reschedule(context, 'user-a', ids.appointmentId, {
+        start: '2026-09-10T11:00:00-04:00',
+      }),
+    ).rejects.toMatchObject({
+      response: { code: appointmentSchedulingCodes.slotUnavailable },
+    });
+    expect(tx.appointment.update).not.toHaveBeenCalled();
+  });
+
+  it('voice rescheduling preserves relationships, duration and excludes itself from provider-wide conflicts', async () => {
+    const { service, tx } = setup();
+    const result = await service.rescheduleVerifiedPatient({
+      tenantId: 'tenant-a',
+      patientId: ids.patientId,
+      appointmentId: ids.appointmentId,
+      appointmentDate: '2026-09-10',
+      startTime: '11:00',
+      mutate: true,
+      now: new Date('2026-09-01T00:00:00Z'),
+    });
+    expect(result).toMatchObject({ status: 'valid', changed: true });
+    expect(tx.$executeRaw.mock.calls.map((call) => call[1])).toEqual([
+      'appointment-record:tenant-a:appointment-a',
+      'clinic-config:location-schedule:tenant-a:location-a',
+      'appointment-schedule:tenant-a:provider-z',
+    ]);
+    expect(tx.appointment.findFirst).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          providerId: ids.providerId,
+          id: { not: ids.appointmentId },
+        }),
+      }),
+    );
+    expect(tx.appointment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          startAt: new Date('2026-09-10T15:00:00Z'),
+          endAt: new Date('2026-09-10T15:30:00Z'),
+        }),
+      }),
+    );
+    expect(
+      JSON.stringify(tx.appointment.update.mock.calls[0][0].data),
+    ).not.toMatch(/patientId|providerId|serviceId|locationId/);
+  });
+
+  it('voice preview never mutates and foreign, terminal, or stale selections fail safely', async () => {
+    const preview = setup();
+    await expect(
+      preview.service.rescheduleVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: ids.patientId,
+        appointmentId: ids.appointmentId,
+        appointmentDate: '2026-09-10',
+        startTime: '11:00',
+        mutate: false,
+        now: new Date('2026-09-01T00:00:00Z'),
+      }),
+    ).resolves.toMatchObject({ status: 'valid' });
+    expect(preview.tx.appointment.update).not.toHaveBeenCalled();
+
+    const foreign = setup();
+    foreign.tx.appointment.findFirst.mockReset().mockResolvedValue(null);
+    await expect(
+      foreign.service.rescheduleVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: 'patient-b',
+        appointmentId: ids.appointmentId,
+        appointmentDate: '2026-09-10',
+        startTime: '11:00',
+        mutate: true,
+      }),
+    ).resolves.toEqual({ status: 'selection_invalid' });
+    expect(foreign.tx.appointment.update).not.toHaveBeenCalled();
+
+    const terminal = setup({ current: { status: 'NO_SHOW' } });
+    await expect(
+      terminal.service.rescheduleVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: ids.patientId,
+        appointmentId: ids.appointmentId,
+        appointmentDate: '2026-09-10',
+        startTime: '11:00',
+        mutate: true,
+        now: new Date('2026-09-01T00:00:00Z'),
+      }),
+    ).resolves.toEqual({ status: 'appointment_not_reschedulable' });
+    expect(terminal.tx.appointment.update).not.toHaveBeenCalled();
+  });
+
+  it('serializes cancellation release with record then provider locks', async () => {
+    const { service, tx } = setup();
+    await service.cancel(context, 'user-a', ids.appointmentId, {});
+    expect(tx.$executeRaw.mock.calls.map((call) => call[1])).toEqual([
+      'appointment-record:tenant-a:appointment-a',
+      'appointment-schedule:tenant-a:provider-z',
+    ]);
+    expect(tx.appointment.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('voice cancellation previews without mutation then preserves relationships under record and provider locks', async () => {
+    const { service, tx } = setup();
+    await expect(
+      service.cancelVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: ids.patientId,
+        appointmentId: ids.appointmentId,
+        mutate: false,
+        now: new Date('2026-09-01T00:00:00Z'),
+      }),
+    ).resolves.toMatchObject({ status: 'valid', changed: false });
+    expect(tx.appointment.update).not.toHaveBeenCalled();
+
+    const mutation = setup();
+    const marker = '2026-09-01T00:00:00.000Z';
+    const result = await mutation.service.cancelVerifiedPatient({
+      tenantId: 'tenant-a',
+      patientId: ids.patientId,
+      appointmentId: ids.appointmentId,
+      mutate: true,
+      expectedUpdatedAt: marker,
+      now: new Date('2026-09-01T00:00:00Z'),
+    });
+    expect(result).toMatchObject({
+      status: 'valid',
+      changed: true,
+      appointment: {
+        appointmentNumber: 'APT-001',
+        status: 'CANCELLED',
+      },
+    });
+    expect(
+      mutation.tx.$executeRaw.mock.calls.slice(-2).map((call) => call[1]),
+    ).toEqual([
+      'appointment-record:tenant-a:appointment-a',
+      'appointment-schedule:tenant-a:provider-z',
+    ]);
+    expect(
+      JSON.stringify(mutation.tx.appointment.update.mock.calls[0][0].data),
+    ).not.toMatch(
+      /patientId|providerId|serviceId|locationId|cancellationReason/,
+    );
+  });
+
+  it('voice cancellation fails safely for foreign, stale, past, and terminal appointments', async () => {
+    const foreign = setup();
+    foreign.tx.appointment.findFirst.mockReset().mockResolvedValue(null);
+    await expect(
+      foreign.service.cancelVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: 'patient-b',
+        appointmentId: ids.appointmentId,
+        mutate: true,
+      }),
+    ).resolves.toEqual({ status: 'selection_invalid' });
+
+    const stale = setup();
+    await expect(
+      stale.service.cancelVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: ids.patientId,
+        appointmentId: ids.appointmentId,
+        mutate: true,
+        expectedUpdatedAt: '2026-09-02T00:00:00.000Z',
+      }),
+    ).resolves.toEqual({ status: 'selection_invalid' });
+
+    for (const current of [
+      { status: 'COMPLETED' },
+      { status: 'NO_SHOW' },
+      { startAt: new Date('2026-08-01T00:00:00Z') },
+    ]) {
+      const ineligible = setup({ current });
+      await expect(
+        ineligible.service.cancelVerifiedPatient({
+          tenantId: 'tenant-a',
+          patientId: ids.patientId,
+          appointmentId: ids.appointmentId,
+          mutate: true,
+          now: new Date('2026-09-01T00:00:00Z'),
+        }),
+      ).resolves.toEqual({ status: 'appointment_not_cancellable' });
+      expect(ineligible.tx.appointment.update).not.toHaveBeenCalled();
+    }
+  });
+
+  it('treats an already-cancelled appointment as an idempotent success', async () => {
+    const { service, tx } = setup({ current: { status: 'CANCELLED' } });
+    await expect(
+      service.cancelVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: ids.patientId,
+        appointmentId: ids.appointmentId,
+        mutate: true,
+      }),
+    ).resolves.toMatchObject({ status: 'valid', changed: false });
+    expect(tx.appointment.update).not.toHaveBeenCalled();
+  });
+});

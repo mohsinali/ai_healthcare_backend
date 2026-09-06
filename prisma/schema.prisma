@@ -339,17 +339,38 @@ model Service {
 }
 
 model ProviderLocation {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @db.Uuid
-  providerId String   @db.Uuid
-  locationId String   @db.Uuid
-  createdAt  DateTime @default(now())
-  provider   Provider @relation(fields: [tenantId, providerId], references: [tenantId, id], onDelete: Cascade)
-  location   Location @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: Cascade)
+  id                     String                  @id @default(uuid()) @db.Uuid
+  tenantId               String                  @db.Uuid
+  providerId             String                  @db.Uuid
+  locationId             String                  @db.Uuid
+  createdAt              DateTime                @default(now())
+  provider               Provider                @relation(fields: [tenantId, providerId], references: [tenantId, id], onDelete: Cascade)
+  location               Location                @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: Cascade)
+  providerWorkingPeriods ProviderWorkingPeriod[]
 
   @@unique([providerId, locationId])
+  @@unique([tenantId, providerId, locationId], map: "pl_tenant_provider_location_key")
   @@index([tenantId, providerId])
   @@index([tenantId, locationId])
+}
+
+model ProviderWorkingPeriod {
+  id               String           @id @default(uuid()) @db.Uuid
+  tenantId         String           @db.Uuid
+  providerId       String           @db.Uuid
+  locationId       String           @db.Uuid
+  dayOfWeek        DayOfWeek
+  startTime        String           @db.VarChar(5)
+  endTime          String           @db.VarChar(5)
+  isActive         Boolean          @default(true)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  providerLocation ProviderLocation @relation(fields: [tenantId, providerId, locationId], references: [tenantId, providerId, locationId], onDelete: Cascade, map: "pwp_provider_location_fkey")
+
+  @@unique([tenantId, id], map: "pwp_tenant_id_key")
+  @@unique([tenantId, providerId, locationId, dayOfWeek, startTime, endTime], map: "pwp_exact_period_key")
+  @@index([tenantId, providerId, locationId, dayOfWeek, isActive], map: "pwp_provider_schedule_idx")
+  @@index([tenantId, locationId, dayOfWeek, isActive], map: "pwp_location_schedule_idx")
 }
 
 model ProviderService {
