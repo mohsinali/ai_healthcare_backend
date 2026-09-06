@@ -33,7 +33,7 @@ Manual ElevenLabs dashboard configuration and live testing remain pending while 
 
 `WebVoiceChannel` belongs to one tenant and optionally one same-tenant location. It has an immutable, globally unique `publicWidgetKey`, optional server-managed `agentId`, an allowed-origin list, `ACTIVE`/`INACTIVE` status, and timestamps. Keys are generated with 32 cryptographically secure random bytes encoded as `wgt_<base64url>`; they are opaque and are not derived from tenant data. Routine lifecycle changes use status rather than deletion. Key rotation is deliberately deferred because replacing a key requires updating the clinic website.
 
-An allowed origin is exactly `scheme://hostname[:port]`, using only HTTP or HTTPS. Paths, queries, fragments, credentials, wildcards, subdomain matching, and suffix matching are rejected. Values are canonicalized (including hostname casing and default ports), deduplicated, sorted, and compared exactly. Configure every production origin explicitly; for the planned local dummy clinic, configure `http://localhost:3001` only on its development channel. An empty list authorizes no external embedding.
+An allowed origin is exactly `scheme://hostname[:port]`, using only HTTP or HTTPS. Paths, queries, fragments, credentials, wildcards, subdomain matching, and suffix matching are rejected. Values are canonicalized (including hostname casing and default ports), deduplicated, sorted, and compared exactly. Configure every production origin explicitly. An empty list authorizes no external embedding.
 
 The public widget key identifies a channel but is not authorization: it can appear in public page source. External bootstrap requires and checks the browser `Origin` against this policy before creating a session. CORS controls which browser responses may be read; it does not replace server-side origin authorization and must not be treated as one. The existing internal CareFlow `/voice/web/session` test flow is unchanged and does not enforce this list.
 
@@ -47,9 +47,17 @@ Browser preflight is deliberately transport-only. For this route, a syntacticall
 
 After origin authorization, the endpoint applies the existing throttler storage at 20 requests/minute per client IP and 60 requests/minute per widget-key fingerprint. The current repository throttler is process-local, so these limits are per application instance; production multi-instance enforcement will require the throttler's storage to be replaced with a shared Redis-backed implementation.
 
-For local development, add only `http://localhost:3001` to the intended channel. An owner or clinic admin can PATCH `/api/v1/web-voice-channels/<channel-id>` in the intended tenant context with the channel's complete desired list, for example `{ "allowedOrigins": ["http://localhost:3001"] }`. Alternatively, use `npm run prisma:studio`, open `WebVoiceChannel`, locate the row by its tenant/channel identity, and edit only that row's `allowedOrigins`. Do not bulk-update all channels.
+Manage allowed origins through the tenant-authenticated channel update endpoint or another tenant-scoped administration tool. Always identify the intended channel by both tenant and channel identity, submit its complete desired origin list, and never bulk-update all channels.
 
-The official `embed.js` loader and dummy clinic website are intentionally deferred to the next milestone; no customer installation snippet is published yet.
+The production frontend serves `/voice-widget/embed.js` and its same-origin bootstrap proxy. Install it on an authorized customer origin with:
+
+```html
+<script
+  src="https://<careflow-frontend-domain>/voice-widget/embed.js"
+  data-widget-key="wgt_..."
+  async
+></script>
+```
 
 An active location-specific channel resolves that location. A tenant-wide channel queries active locations deterministically: exactly one is auto-selected; zero or more than one stays tenant-wide with `locationId = null`. This explicitly avoids guessing a location. Future location-specific tools, including scheduling, must require location selection when it is unresolved. Inactive channels, tenants, and explicitly assigned locations cannot resolve.
 
