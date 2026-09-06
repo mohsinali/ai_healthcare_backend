@@ -12,8 +12,15 @@ export interface VoiceSessionRecord {
   patientVerification?: PatientVerificationState;
   appointmentSelection?: AppointmentSelectionState;
   pendingReschedule?: PendingRescheduleState;
+  pendingCancellation?: PendingCancellationState;
   createdAt: string;
   expiresAt: string;
+}
+
+export interface PendingCancellationState {
+  appointmentUpdatedAt: string;
+  patientVerificationFlowVersion: number;
+  appointmentSelectionVersion: number;
 }
 
 export interface PendingRescheduleState {

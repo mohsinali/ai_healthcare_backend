@@ -268,4 +268,96 @@ describeRedis('VoiceSessionService Redis concurrency', () => {
     );
     expect((await service.resolve(token)).pendingReschedule).toBeUndefined();
   });
+
+  it('atomically binds cancellation to identity, selection version, and database marker without extending TTL', async () => {
+    const { token } = await create();
+    const key = keyFor(token);
+    await service.replacePatientCandidates(token, ['patient-a']);
+    await service.applyPatientVerification(token, 1, 'patient-a');
+    await service.setAppointmentSelection(
+      token,
+      1,
+      'patient-a',
+      'appointment-a',
+    );
+    const initialTtl = await client.pTTL(key);
+    await expect(
+      service.setPendingCancellation({
+        token,
+        patientId: 'patient-a',
+        appointmentId: 'appointment-a',
+        appointmentUpdatedAt: '2026-09-01T00:00:00.000Z',
+      }),
+    ).resolves.toBe('updated');
+    await expect(
+      service.consumePendingCancellation({
+        token,
+        patientId: 'patient-b',
+        appointmentId: 'appointment-a',
+      }),
+    ).resolves.toEqual({ status: 'stale' });
+    await expect(
+      Promise.all([
+        service.consumePendingCancellation({
+          token,
+          patientId: 'patient-a',
+          appointmentId: 'appointment-a',
+        }),
+        service.consumePendingCancellation({
+          token,
+          patientId: 'patient-a',
+          appointmentId: 'appointment-a',
+        }),
+      ]),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        {
+          status: 'consumed',
+          appointmentUpdatedAt: '2026-09-01T00:00:00.000Z',
+        },
+        { status: 'missing' },
+      ]),
+    );
+    expect((await service.resolve(token)).pendingCancellation).toBeUndefined();
+    expect(await client.pTTL(key)).toBeLessThanOrEqual(initialTtl);
+  });
+
+  it('clears pending cancellation on new selection, re-identification, and reschedule preview', async () => {
+    const { token } = await create();
+    await service.replacePatientCandidates(token, ['patient-a']);
+    await service.applyPatientVerification(token, 1, 'patient-a');
+    await service.setAppointmentSelection(
+      token,
+      1,
+      'patient-a',
+      'appointment-a',
+    );
+    const setCancellation = () =>
+      service.setPendingCancellation({
+        token,
+        patientId: 'patient-a',
+        appointmentId: 'appointment-a',
+        appointmentUpdatedAt: '2026-09-01T00:00:00.000Z',
+      });
+    await setCancellation();
+    await service.setAppointmentSelection(
+      token,
+      1,
+      'patient-a',
+      'appointment-a',
+    );
+    expect((await service.resolve(token)).pendingCancellation).toBeUndefined();
+    await setCancellation();
+    await service.setPendingReschedule({
+      token,
+      patientId: 'patient-a',
+      appointmentId: 'appointment-a',
+      appointmentDate: '2026-09-12',
+      startTime: '14:30',
+    });
+    expect((await service.resolve(token)).pendingCancellation).toBeUndefined();
+    await setCancellation();
+    await service.replacePatientCandidates(token, ['patient-b']);
+    expect((await service.resolve(token)).pendingCancellation).toBeUndefined();
+  });
 });

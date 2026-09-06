@@ -45,6 +45,15 @@ describe('AppointmentsService protected scheduling writes', () => {
       startAt: new Date('2026-09-10T13:00:00Z'),
       endAt: new Date('2026-09-10T13:30:00Z'),
       status: 'BOOKED',
+      updatedAt: new Date('2026-09-01T00:00:00Z'),
+      location: { name: 'Clinic', timezone: 'America/New_York' },
+      provider: {
+        firstName: 'Ada',
+        lastName: 'Doctor',
+        displayName: 'Dr Ada',
+        title: null,
+      },
+      service: { name: 'Consultation' },
       ...options.current,
     };
     const tx = {
@@ -103,7 +112,14 @@ describe('AppointmentsService protected scheduling writes', () => {
           .mockResolvedValueOnce(current)
           .mockResolvedValue(options.conflict ? { id: 'conflict' } : null),
         create: jest.fn().mockResolvedValue({ id: ids.appointmentId }),
-        update: jest.fn(),
+        update: jest.fn().mockImplementation(({ data }) =>
+          Promise.resolve({
+            ...current,
+            ...data,
+            status: data.status ?? current.status,
+            updatedAt: new Date('2026-09-01T00:00:01Z'),
+          }),
+        ),
       },
     };
     const prisma = {
@@ -373,5 +389,104 @@ describe('AppointmentsService protected scheduling writes', () => {
       'appointment-schedule:tenant-a:provider-z',
     ]);
     expect(tx.appointment.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('voice cancellation previews without mutation then preserves relationships under record and provider locks', async () => {
+    const { service, tx } = setup();
+    await expect(
+      service.cancelVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: ids.patientId,
+        appointmentId: ids.appointmentId,
+        mutate: false,
+        now: new Date('2026-09-01T00:00:00Z'),
+      }),
+    ).resolves.toMatchObject({ status: 'valid', changed: false });
+    expect(tx.appointment.update).not.toHaveBeenCalled();
+
+    const mutation = setup();
+    const marker = '2026-09-01T00:00:00.000Z';
+    const result = await mutation.service.cancelVerifiedPatient({
+      tenantId: 'tenant-a',
+      patientId: ids.patientId,
+      appointmentId: ids.appointmentId,
+      mutate: true,
+      expectedUpdatedAt: marker,
+      now: new Date('2026-09-01T00:00:00Z'),
+    });
+    expect(result).toMatchObject({
+      status: 'valid',
+      changed: true,
+      appointment: {
+        appointmentNumber: 'APT-001',
+        status: 'CANCELLED',
+      },
+    });
+    expect(
+      mutation.tx.$executeRaw.mock.calls.slice(-2).map((call) => call[1]),
+    ).toEqual([
+      'appointment-record:tenant-a:appointment-a',
+      'appointment-schedule:tenant-a:provider-z',
+    ]);
+    expect(
+      JSON.stringify(mutation.tx.appointment.update.mock.calls[0][0].data),
+    ).not.toMatch(
+      /patientId|providerId|serviceId|locationId|cancellationReason/,
+    );
+  });
+
+  it('voice cancellation fails safely for foreign, stale, past, and terminal appointments', async () => {
+    const foreign = setup();
+    foreign.tx.appointment.findFirst.mockReset().mockResolvedValue(null);
+    await expect(
+      foreign.service.cancelVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: 'patient-b',
+        appointmentId: ids.appointmentId,
+        mutate: true,
+      }),
+    ).resolves.toEqual({ status: 'selection_invalid' });
+
+    const stale = setup();
+    await expect(
+      stale.service.cancelVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: ids.patientId,
+        appointmentId: ids.appointmentId,
+        mutate: true,
+        expectedUpdatedAt: '2026-09-02T00:00:00.000Z',
+      }),
+    ).resolves.toEqual({ status: 'selection_invalid' });
+
+    for (const current of [
+      { status: 'COMPLETED' },
+      { status: 'NO_SHOW' },
+      { startAt: new Date('2026-08-01T00:00:00Z') },
+    ]) {
+      const ineligible = setup({ current });
+      await expect(
+        ineligible.service.cancelVerifiedPatient({
+          tenantId: 'tenant-a',
+          patientId: ids.patientId,
+          appointmentId: ids.appointmentId,
+          mutate: true,
+          now: new Date('2026-09-01T00:00:00Z'),
+        }),
+      ).resolves.toEqual({ status: 'appointment_not_cancellable' });
+      expect(ineligible.tx.appointment.update).not.toHaveBeenCalled();
+    }
+  });
+
+  it('treats an already-cancelled appointment as an idempotent success', async () => {
+    const { service, tx } = setup({ current: { status: 'CANCELLED' } });
+    await expect(
+      service.cancelVerifiedPatient({
+        tenantId: 'tenant-a',
+        patientId: ids.patientId,
+        appointmentId: ids.appointmentId,
+        mutate: true,
+      }),
+    ).resolves.toMatchObject({ status: 'valid', changed: false });
+    expect(tx.appointment.update).not.toHaveBeenCalled();
   });
 });

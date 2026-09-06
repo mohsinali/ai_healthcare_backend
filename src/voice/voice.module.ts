@@ -22,6 +22,7 @@ import { VoicePatientVerificationService } from './voice-patient-verification.se
 import { VoiceAppointmentBookingService } from './voice-appointment-booking.service';
 import { VoiceAppointmentSearchService } from './voice-appointment-search.service';
 import { VoiceAppointmentReschedulingService } from './voice-appointment-rescheduling.service';
+import { VoiceAppointmentCancellationService } from './voice-appointment-cancellation.service';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { VoiceAppointmentReschedulingService } from './voice-appointment-resched
     VoiceAppointmentBookingService,
     VoiceAppointmentSearchService,
     VoiceAppointmentReschedulingService,
+    VoiceAppointmentCancellationService,
   ],
   exports: [VoiceBootstrapService, VoicePatientVerificationService],
 })

@@ -20,6 +20,7 @@ describe('VoiceDirectoryController', () => {
     });
     const searchServices = jest.fn().mockResolvedValue({ services: [] });
     const reschedule = jest.fn().mockResolvedValue({ status: 'ok' });
+    const cancel = jest.fn().mockResolvedValue({ status: 'ok' });
     const controller = new VoiceDirectoryController(
       { searchServices } as never,
       { resolve } as never,
@@ -27,6 +28,7 @@ describe('VoiceDirectoryController', () => {
       {} as never,
       {} as never,
       { reschedule } as never,
+      { cancel } as never,
     );
     await controller.searchServices('widget', 'LOC-1', 'token', {
       query: 'care',
@@ -43,10 +45,22 @@ describe('VoiceDirectoryController', () => {
       expect.objectContaining({ context }),
       expect.objectContaining({ confirmed: true }),
     );
+    await controller.cancelAppointment('widget', 'token', {
+      confirmed: false,
+    });
+    expect(cancel).toHaveBeenCalledWith(expect.objectContaining({ context }), {
+      confirmed: false,
+    });
     expect(
       Reflect.getMetadata(
         'THROTTLER:LIMITdefault',
         VoiceDirectoryController.prototype.rescheduleAppointment,
+      ),
+    ).toBe(10);
+    expect(
+      Reflect.getMetadata(
+        'THROTTLER:LIMITdefault',
+        VoiceDirectoryController.prototype.cancelAppointment,
       ),
     ).toBe(10);
   });

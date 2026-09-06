@@ -94,6 +94,25 @@ export type VerifiedPatientRescheduleResult =
       current: { startAt: Date; endAt: Date };
     };
 
+export type VerifiedPatientCancellationResult =
+  | { status: 'selection_invalid' }
+  | { status: 'appointment_not_cancellable' }
+  | {
+      status: 'valid';
+      changed: boolean;
+      appointment: {
+        appointmentNumber: string;
+        startAt: Date;
+        endAt: Date;
+        updatedAt: Date;
+        status: AppointmentStatus;
+        timezone: string;
+        locationName: string;
+        serviceName: string;
+        providerName: string;
+      };
+    };
+
 @Injectable()
 export class AppointmentsService {
   constructor(
@@ -521,6 +540,102 @@ export class AppointmentsService {
             locationName: config.location.name,
             serviceName: config.service.name,
             providerName: this.providerName(config.provider),
+          },
+        } as const;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+    );
+  }
+
+  async cancelVerifiedPatient(input: {
+    tenantId: string;
+    patientId: string;
+    appointmentId: string;
+    mutate: boolean;
+    expectedUpdatedAt?: string;
+    now?: Date;
+  }): Promise<VerifiedPatientCancellationResult> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await lockAppointmentRecord(tx, input.tenantId, input.appointmentId);
+        const current = await tx.appointment.findFirst({
+          where: {
+            id: input.appointmentId,
+            tenantId: input.tenantId,
+            patientId: input.patientId,
+          },
+          include: {
+            location: { select: { name: true, timezone: true } },
+            provider: {
+              select: {
+                firstName: true,
+                lastName: true,
+                displayName: true,
+                title: true,
+              },
+            },
+            service: { select: { name: true } },
+          },
+        });
+        if (!current) return { status: 'selection_invalid' } as const;
+        if (
+          input.expectedUpdatedAt &&
+          current.updatedAt.toISOString() !== input.expectedUpdatedAt
+        )
+          return { status: 'selection_invalid' } as const;
+
+        const alreadyCancelled = current.status === AppointmentStatus.CANCELLED;
+        if (
+          (!alreadyCancelled && this.terminal(current.status)) ||
+          (!alreadyCancelled &&
+            current.startAt.valueOf() <= (input.now ?? new Date()).valueOf())
+        )
+          return { status: 'appointment_not_cancellable' } as const;
+
+        let appointment = current;
+        if (input.mutate && !alreadyCancelled) {
+          await lockProviderAppointmentSchedules(tx, input.tenantId, [
+            current.providerId,
+          ]);
+          appointment = await tx.appointment.update({
+            where: {
+              tenantId_id: {
+                tenantId: input.tenantId,
+                id: current.id,
+              },
+            },
+            data: {
+              status: AppointmentStatus.CANCELLED,
+              cancelledAt: new Date(),
+              events: { create: { type: 'CANCELLED' } },
+            },
+            include: {
+              location: { select: { name: true, timezone: true } },
+              provider: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  displayName: true,
+                  title: true,
+                },
+              },
+              service: { select: { name: true } },
+            },
+          });
+        }
+        return {
+          status: 'valid',
+          changed: input.mutate && !alreadyCancelled,
+          appointment: {
+            appointmentNumber: appointment.appointmentNumber,
+            startAt: appointment.startAt,
+            endAt: appointment.endAt,
+            updatedAt: appointment.updatedAt,
+            status: appointment.status,
+            timezone: appointment.location.timezone,
+            locationName: appointment.location.name,
+            serviceName: appointment.service.name,
+            providerName: this.providerName(appointment.provider),
           },
         } as const;
       },
