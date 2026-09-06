@@ -80,5 +80,13 @@ describe('Web voice controller security boundaries', () => {
       name: 'Cache-Control',
       value: 'no-store',
     });
+    const externalHeaders = Reflect.getMetadata(
+      HEADERS_METADATA,
+      WebVoiceSessionController.prototype.createWidgetSession,
+    ) as Array<{ name: string; value: string }>;
+    expect(externalHeaders).toContainEqual({
+      name: 'Cache-Control',
+      value: 'no-store',
+    });
   });
 });

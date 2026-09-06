@@ -20,6 +20,7 @@ describe('WebVoiceChannelResolverService', () => {
     tenantId: 'tenant-a',
     locationId: 'location-a',
     agentId: 'agent_override',
+    allowedOrigins: ['https://clinic.example'],
     status: WebVoiceChannelStatus.ACTIVE,
     tenant: {
       id: 'tenant-a',

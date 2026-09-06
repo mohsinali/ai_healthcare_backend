@@ -1,4 +1,12 @@
-import { Body, Controller, Header, HttpCode, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Header,
+  Headers,
+  HttpCode,
+  Ip,
+  Post,
+} from '@nestjs/common';
 import {
   ApiBadGatewayResponse,
   ApiNotFoundResponse,
@@ -6,7 +14,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { Throttle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { Public } from '../auth/decorators/public.decorator';
 import { CreateWebVoiceSessionDto } from './dto/create-web-voice-session.dto';
 import { WebVoiceSessionService } from './web-voice-session.service';
@@ -46,5 +54,19 @@ export class WebVoiceSessionController {
   })
   create(@Body() dto: CreateWebVoiceSessionDto) {
     return this.sessions.create(dto.widgetKey);
+  }
+
+  @Post('widget-session')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @SkipThrottle()
+  @ApiOperation({ summary: 'Bootstrap a clinic-site web voice conversation' })
+  @ApiOkResponse({ description: 'Safe, short-lived conversation bootstrap' })
+  createWidgetSession(
+    @Body() dto: CreateWebVoiceSessionDto,
+    @Headers('origin') origin: string | string[] | undefined,
+    @Ip() clientIp: string,
+  ) {
+    return this.sessions.createExternal(dto.widgetKey, origin, clientIp);
   }
 }

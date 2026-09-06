@@ -9,6 +9,8 @@ export interface VoiceSessionRecord {
   channel: VoiceChannel;
   channelIdentity: string;
   selectedLocationId: string | null;
+  /** Canonical embedding origin for externally bootstrapped sessions only. */
+  embeddingOrigin?: string;
   patientVerification?: PatientVerificationState;
   appointmentSelection?: AppointmentSelectionState;
   pendingReschedule?: PendingRescheduleState;

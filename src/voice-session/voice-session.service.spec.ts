@@ -20,9 +20,9 @@ describe('VoiceSessionService', () => {
     store = new Map();
     expiries = new Map();
     client = {
-      set: jest.fn((key: string, value: string, options: { EX: number }) => {
+      set: jest.fn((key: string, value: string, options: { PXAT: number }) => {
         store.set(key, value);
-        expiries.set(key, Date.now() + options.EX * 1_000);
+        expiries.set(key, options.PXAT);
         return Promise.resolve('OK');
       }),
       get: jest.fn((key: string) => {
@@ -96,6 +96,25 @@ describe('VoiceSessionService', () => {
     await expect(service.resolve(token)).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
+  });
+
+  it('preserves an immutable optional embedding origin through updates', async () => {
+    const created = await service.create({
+      tenantId: 'tenant-a',
+      channel: VoiceChannel.WEB_WIDGET,
+      channelIdentity: 'widget-channel-a',
+      selectedLocationId: null,
+      embeddingOrigin: 'https://clinic.example',
+    });
+    const updated = await service.bindSelectedLocation(
+      created.token,
+      created.session,
+      'location-a',
+    );
+    expect(updated.embeddingOrigin).toBe('https://clinic.example');
+    await expect(service.resolve(created.token)).resolves.toMatchObject({
+      embeddingOrigin: 'https://clinic.example',
+    });
   });
 
   it('updates selected location without extending absolute expiry and isolates sessions', async () => {

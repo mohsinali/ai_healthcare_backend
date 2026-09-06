@@ -21,6 +21,15 @@ describe('WebVoiceSessionService', () => {
   };
   const create = (resolved: unknown = context, defaultAgent?: string) => {
     const resolve = jest.fn().mockResolvedValue(resolved);
+    const resolveForExternal = jest.fn().mockResolvedValue(
+      resolved
+        ? {
+            context: resolved,
+            allowedOrigins: (resolved as { allowedOrigins?: string[] })
+              .allowedOrigins ?? ['https://clinic.example'],
+          }
+        : null,
+    );
     const getSignedConversationUrl = jest
       .fn()
       .mockResolvedValue('wss://signed.example/token');
@@ -29,19 +38,24 @@ describe('WebVoiceSessionService', () => {
         key === 'ELEVENLABS_AGENT_ID' ? defaultAgent : undefined,
       ),
     };
-    const createSession = jest
-      .fn()
-      .mockResolvedValue({ token: 't'.repeat(43) });
+    const createSession = jest.fn().mockResolvedValue({
+      token: 't'.repeat(43),
+      session: { expiresAt: new Date(Date.now() + 900_000).toISOString() },
+    });
+    const increment = jest.fn().mockResolvedValue({ isBlocked: false });
     return {
       service: new WebVoiceSessionService(
-        { resolve } as never,
+        { resolve, resolveForExternal } as never,
         { getSignedConversationUrl } as never,
         config as never,
         { create: createSession } as never,
+        { increment },
       ),
       resolve,
+      resolveForExternal,
       getSignedConversationUrl,
       createSession,
+      increment,
     };
   };
 
@@ -101,5 +115,111 @@ describe('WebVoiceSessionService', () => {
     await expect(
       fixture.service.create(`wgt_${'a'.repeat(43)}`),
     ).rejects.toMatchObject({ response: { statusCode: 502 } });
+  });
+
+  it('authorizes and binds the canonical external origin', async () => {
+    const fixture = create(context, 'agent_default');
+    const result = await fixture.service.createExternal(
+      `wgt_${'a'.repeat(43)}`,
+      'HTTPS://CLINIC.EXAMPLE:443',
+      '203.0.113.4',
+    );
+    expect(fixture.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant',
+        channelIdentity: 'channel',
+        embeddingOrigin: 'https://clinic.example',
+      }),
+    );
+    expect(fixture.increment).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      signedUrl: 'wss://signed.example/token',
+      voiceSessionToken: 't'.repeat(43),
+      expiresIn: expect.any(Number) as number,
+    });
+    expect(JSON.stringify(result)).not.toMatch(
+      /tenantId|channelIdentity|allowedOrigins|embeddingOrigin/i,
+    );
+  });
+
+  it.each([
+    undefined,
+    ['https://clinic.example', 'https://evil.example'],
+    'https://clinic.example, https://evil.example',
+    'null',
+    'not-an-origin',
+  ])(
+    'rejects an invalid Origin before lookup or side effects',
+    async (origin) => {
+      const fixture = create(context, 'agent_default');
+      await expect(
+        fixture.service.createExternal(
+          `wgt_${'a'.repeat(43)}`,
+          origin,
+          '203.0.113.4',
+        ),
+      ).rejects.toMatchObject({ response: { statusCode: 403 } });
+      expect(fixture.resolveForExternal).not.toHaveBeenCalled();
+      expect(fixture.getSignedConversationUrl).not.toHaveBeenCalled();
+      expect(fixture.createSession).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['https://evil.example', context],
+    ['http://clinic.example', context],
+    ['https://clinic.example:444', context],
+    ['https://sub.clinic.example', context],
+    ['https://clinic.example.evil.test', context],
+    ['https://clinic.example', { ...context, allowedOrigins: [] }],
+    ['https://clinic.example', null],
+  ])(
+    'uses one generic rejection without creating credentials',
+    async (origin, resolved) => {
+      const fixture = create(resolved, 'agent_default');
+      await expect(
+        fixture.service.createExternal(
+          `wgt_${'a'.repeat(43)}`,
+          origin,
+          '203.0.113.4',
+        ),
+      ).rejects.toMatchObject({
+        response: {
+          statusCode: 403,
+          message: 'Web voice widget is unavailable.',
+        },
+      });
+      expect(fixture.getSignedConversationUrl).not.toHaveBeenCalled();
+      expect(fixture.createSession).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not create Redis state when signed URL generation fails', async () => {
+    const fixture = create(context, 'agent_default');
+    fixture.getSignedConversationUrl.mockRejectedValue(
+      new BadGatewayException('Voice service is temporarily unavailable.'),
+    );
+    await expect(
+      fixture.service.createExternal(
+        `wgt_${'a'.repeat(43)}`,
+        'https://clinic.example',
+        '203.0.113.4',
+      ),
+    ).rejects.toMatchObject({ response: { statusCode: 502 } });
+    expect(fixture.createSession).not.toHaveBeenCalled();
+  });
+
+  it('applies the focused limiter after authorization', async () => {
+    const fixture = create(context, 'agent_default');
+    fixture.increment.mockResolvedValueOnce({ isBlocked: true });
+    await expect(
+      fixture.service.createExternal(
+        `wgt_${'a'.repeat(43)}`,
+        'https://clinic.example',
+        '203.0.113.4',
+      ),
+    ).rejects.toMatchObject({ status: 429 });
+    expect(fixture.getSignedConversationUrl).not.toHaveBeenCalled();
+    expect(fixture.createSession).not.toHaveBeenCalled();
   });
 });

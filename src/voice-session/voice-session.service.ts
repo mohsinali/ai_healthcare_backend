@@ -15,6 +15,22 @@ import {
 
 const KEY_PREFIX = 'voice:session:v1:';
 const INVALID_SESSION = 'Voice session is invalid or expired.';
+const isCanonicalHttpOrigin = (value: string): boolean => {
+  try {
+    const parsed = new URL(value);
+    return (
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+      parsed.origin === value &&
+      parsed.pathname === '/' &&
+      !parsed.search &&
+      !parsed.hash &&
+      !parsed.username &&
+      !parsed.password
+    );
+  } catch {
+    return false;
+  }
+};
 const DEFAULT_PATIENT_VERIFICATION: PatientVerificationState = {
   candidatePatientIds: [],
   verifiedPatientId: null,
@@ -40,6 +56,7 @@ export class VoiceSessionService {
     channel: VoiceChannel;
     channelIdentity: string;
     selectedLocationId: string | null;
+    embeddingOrigin?: string;
   }): Promise<{ token: string; session: VoiceSessionRecord }> {
     const token = randomBytes(32).toString('base64url');
     const now = new Date();
@@ -57,7 +74,7 @@ export class VoiceSessionService {
         this.key(token),
         JSON.stringify(session),
         {
-          EX: this.ttlSeconds,
+          PXAT: Date.parse(session.expiresAt),
           NX: true,
         },
       );
@@ -439,6 +456,11 @@ export class VoiceSessionService {
         typeof item.tenantId !== 'string' ||
         !Object.values(VoiceChannel).includes(item.channel as VoiceChannel) ||
         typeof item.channelIdentity !== 'string' ||
+        !(
+          item.embeddingOrigin === undefined ||
+          (typeof item.embeddingOrigin === 'string' &&
+            isCanonicalHttpOrigin(item.embeddingOrigin))
+        ) ||
         !(
           typeof item.selectedLocationId === 'string' ||
           item.selectedLocationId === null

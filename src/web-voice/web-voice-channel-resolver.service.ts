@@ -18,6 +18,13 @@ export class WebVoiceChannelResolverService {
   async resolve(
     publicWidgetKey: string,
   ): Promise<WebWidgetVoiceContext | null> {
+    return (await this.resolveForExternal(publicWidgetKey))?.context ?? null;
+  }
+
+  async resolveForExternal(publicWidgetKey: string): Promise<{
+    context: WebWidgetVoiceContext;
+    allowedOrigins: string[];
+  } | null> {
     if (!WIDGET_KEY_PATTERN.test(publicWidgetKey)) return null;
     const mapping = await this.prisma.webVoiceChannel.findUnique({
       where: { publicWidgetKey },
@@ -69,16 +76,19 @@ export class WebVoiceChannelResolverService {
     }
 
     return {
-      channel: VoiceChannel.WEB_WIDGET,
-      webVoiceChannelId: mapping.id,
-      agentId: mapping.agentId,
-      tenantId: mapping.tenant.id,
-      tenantName: mapping.tenant.name,
-      locationId: location?.id ?? null,
-      locationKey: location?.locationNumber ?? null,
-      locationName: location?.name ?? null,
-      timezone: location?.timezone ?? mapping.tenant.timezone,
-      escalationPhoneNumber: location?.escalationPhoneNumber ?? null,
+      allowedOrigins: mapping.allowedOrigins,
+      context: {
+        channel: VoiceChannel.WEB_WIDGET,
+        webVoiceChannelId: mapping.id,
+        agentId: mapping.agentId,
+        tenantId: mapping.tenant.id,
+        tenantName: mapping.tenant.name,
+        locationId: location?.id ?? null,
+        locationKey: location?.locationNumber ?? null,
+        locationName: location?.name ?? null,
+        timezone: location?.timezone ?? mapping.tenant.timezone,
+        escalationPhoneNumber: location?.escalationPhoneNumber ?? null,
+      },
     };
   }
 }

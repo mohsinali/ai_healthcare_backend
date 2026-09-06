@@ -8,6 +8,7 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { FieldValidationException } from './common/validation/field-validation.exception';
 import { flattenValidationErrors } from './common/validation/validation-errors';
+import { widgetAwareCors } from './web-voice/widget-cors';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -19,10 +20,7 @@ async function bootstrap(): Promise<void> {
   app.useLogger(new Logger());
   app.use(helmet());
   app.use(cookieParser());
-  app.enableCors({
-    origin: corsOrigins,
-    credentials: true,
-  });
+  app.enableCors(widgetAwareCors(corsOrigins));
   app.setGlobalPrefix('api');
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   app.useGlobalPipes(
