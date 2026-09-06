@@ -2,6 +2,8 @@ import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { WebVoiceChannelStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsEnum,
   IsInt,
   IsOptional,
@@ -23,6 +25,17 @@ export class CreateWebVoiceChannelDto {
   @IsString()
   @MaxLength(255)
   agentId?: string | null;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Exact HTTP(S) origins authorized to embed this channel.',
+    example: ['https://www.example.com'],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  allowedOrigins?: string[];
 }
 
 export class UpdateWebVoiceChannelDto extends PartialType(

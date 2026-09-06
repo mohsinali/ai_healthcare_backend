@@ -31,7 +31,11 @@ Manual ElevenLabs dashboard configuration and live testing remain pending while 
 
 ## Model and resolution
 
-`WebVoiceChannel` belongs to one tenant and optionally one same-tenant location. It has an immutable, globally unique `publicWidgetKey`, optional server-managed `agentId`, `ACTIVE`/`INACTIVE` status, and timestamps. Keys are generated with 32 cryptographically secure random bytes encoded as `wgt_<base64url>`; they are opaque and are not derived from tenant data. Routine lifecycle changes use status rather than deletion. Key rotation is deliberately deferred because replacing a key requires updating the clinic website.
+`WebVoiceChannel` belongs to one tenant and optionally one same-tenant location. It has an immutable, globally unique `publicWidgetKey`, optional server-managed `agentId`, an allowed-origin list, `ACTIVE`/`INACTIVE` status, and timestamps. Keys are generated with 32 cryptographically secure random bytes encoded as `wgt_<base64url>`; they are opaque and are not derived from tenant data. Routine lifecycle changes use status rather than deletion. Key rotation is deliberately deferred because replacing a key requires updating the clinic website.
+
+An allowed origin is exactly `scheme://hostname[:port]`, using only HTTP or HTTPS. Paths, queries, fragments, credentials, wildcards, subdomain matching, and suffix matching are rejected. Values are canonicalized (including hostname casing and default ports), deduplicated, sorted, and compared exactly. Configure every production origin explicitly; for the planned local dummy clinic, configure `http://localhost:3001` only on its development channel. An empty list authorizes no external embedding.
+
+The public widget key identifies a channel but is not authorization: it can appear in public page source. The next external bootstrap milestone must require and check the browser `Origin` against this policy before creating a session. CORS controls which browser responses may be read; it does not replace server-side origin authorization and must not be treated as one. The existing internal CareFlow `/voice/web/session` test flow is unchanged and does not yet enforce this list.
 
 An active location-specific channel resolves that location. A tenant-wide channel queries active locations deterministically: exactly one is auto-selected; zero or more than one stays tenant-wide with `locationId = null`. This explicitly avoids guessing a location. Future location-specific tools, including scheduling, must require location selection when it is unresolved. Inactive channels, tenants, and explicitly assigned locations cannot resolve.
 
@@ -45,7 +49,7 @@ Generate a URL only when the visitor clicks **Start a Call**, then use it immedi
 
 ## Security follow-ups
 
-CORS is not authentication. Global CORS remains restricted; embedding on clinic domains will require a per-widget allowed-origin strategy. Domain allowlisting is the next hardening step. A future short-lived signed context token will authenticate browser tool calls; it is intentionally not part of session establishment.
+CORS is not authentication. Global CORS remains restricted, while external embedding will use the per-channel exact-origin policy described above. A future short-lived signed context token will authenticate browser tool calls; it is intentionally not part of session establishment.
 
 Environment placeholders:
 

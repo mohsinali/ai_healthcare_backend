@@ -1,5 +1,9 @@
 import { randomBytes } from 'node:crypto';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   ConfigurationStatus,
   Prisma,
@@ -13,6 +17,7 @@ import {
   ListWebVoiceChannelsDto,
   UpdateWebVoiceChannelDto,
 } from './dto/web-voice-channel.dto';
+import { normalizeWebOrigins } from './web-origin-policy';
 
 const select = {
   id: true,
@@ -22,6 +27,7 @@ const select = {
   },
   publicWidgetKey: true,
   agentId: true,
+  allowedOrigins: true,
   status: true,
   createdAt: true,
   updatedAt: true,
@@ -46,11 +52,22 @@ export class WebVoiceChannelsService {
   private mutableData(
     dto: CreateWebVoiceChannelDto | UpdateWebVoiceChannelDto,
   ) {
+    let allowedOrigins: string[] | undefined;
+    if (dto.allowedOrigins !== undefined) {
+      try {
+        allowedOrigins = normalizeWebOrigins(dto.allowedOrigins);
+      } catch {
+        throw new BadRequestException(
+          'allowedOrigins must contain only valid HTTP(S) origins.',
+        );
+      }
+    }
     return {
       ...(dto.locationId !== undefined ? { locationId: dto.locationId } : {}),
       ...(dto.agentId !== undefined
         ? { agentId: optionalText(dto.agentId) }
         : {}),
+      ...(allowedOrigins !== undefined ? { allowedOrigins } : {}),
     };
   }
 
