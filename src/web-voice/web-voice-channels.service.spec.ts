@@ -91,6 +91,24 @@ describe('WebVoiceChannelsService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('lists only active locations from the explicit tenant context', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const count = jest.fn().mockResolvedValue(0);
+    const service = new WebVoiceChannelsService({
+      location: { findMany, count },
+      $transaction: jest
+        .fn()
+        .mockImplementation((operations) => Promise.all(operations)),
+    } as never);
+    await service.listActiveLocations(context, { page: 1, limit: 100 });
+    const where = {
+      tenantId,
+      status: ConfigurationStatus.ACTIVE,
+    };
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where }));
+    expect(count).toHaveBeenCalledWith({ where });
+  });
+
   it('tenant-scopes reads and updates without exposing key mutation', async () => {
     const findFirst = jest.fn().mockResolvedValue(null);
     const service = new WebVoiceChannelsService({

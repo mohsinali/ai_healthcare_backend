@@ -13,10 +13,10 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { TenantRole } from '@prisma/client';
+import { PlatformRole } from '@prisma/client';
+import { PlatformRoles } from '../auth/decorators/platform-roles.decorator';
 import { CurrentTenant } from '../tenants/decorators/current-tenant.decorator';
 import { TenantContextRequired } from '../tenants/decorators/tenant-context-required.decorator';
-import { TenantRoles } from '../tenants/decorators/tenant-roles.decorator';
 import { TrustedTenantContext } from '../tenants/types/tenant-context';
 import {
   CreateWebVoiceChannelDto,
@@ -26,13 +26,6 @@ import {
 } from './dto/web-voice-channel.dto';
 import { WebVoiceChannelsService } from './web-voice-channels.service';
 
-const READ = [
-  TenantRole.CLINIC_OWNER,
-  TenantRole.CLINIC_ADMIN,
-  TenantRole.RECEPTIONIST,
-];
-const WRITE = [TenantRole.CLINIC_OWNER, TenantRole.CLINIC_ADMIN];
-
 @ApiTags('web voice channels')
 @ApiBearerAuth()
 @ApiHeader({
@@ -41,12 +34,12 @@ const WRITE = [TenantRole.CLINIC_OWNER, TenantRole.CLINIC_ADMIN];
   description: 'Trusted tenant context; body fields cannot override ownership.',
 })
 @TenantContextRequired()
+@PlatformRoles(PlatformRole.SUPER_ADMIN)
 @Controller('web-voice-channels')
 export class WebVoiceChannelsController {
   constructor(private readonly channels: WebVoiceChannelsService) {}
 
   @Get()
-  @TenantRoles(...READ)
   list(
     @CurrentTenant() context: TrustedTenantContext,
     @Query() query: ListWebVoiceChannelsDto,
@@ -55,7 +48,6 @@ export class WebVoiceChannelsController {
   }
 
   @Post()
-  @TenantRoles(...WRITE)
   @ApiOperation({
     summary: 'Create a web voice channel and server-generated widget key',
   })
@@ -66,14 +58,20 @@ export class WebVoiceChannelsController {
     return this.channels.create(context, dto);
   }
 
+  @Get('locations')
+  locations(
+    @CurrentTenant() context: TrustedTenantContext,
+    @Query() query: ListWebVoiceChannelsDto,
+  ) {
+    return this.channels.listActiveLocations(context, query);
+  }
+
   @Get(':id')
-  @TenantRoles(...READ)
   get(@CurrentTenant() context: TrustedTenantContext, @Param('id') id: string) {
     return this.channels.get(context, id);
   }
 
   @Patch(':id')
-  @TenantRoles(...WRITE)
   update(
     @CurrentTenant() context: TrustedTenantContext,
     @Param('id') id: string,
@@ -83,7 +81,6 @@ export class WebVoiceChannelsController {
   }
 
   @Patch(':id/status')
-  @TenantRoles(...WRITE)
   status(
     @CurrentTenant() context: TrustedTenantContext,
     @Param('id') id: string,

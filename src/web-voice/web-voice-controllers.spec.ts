@@ -1,7 +1,7 @@
-import { TenantRole } from '@prisma/client';
+import { PlatformRole } from '@prisma/client';
+import { PLATFORM_ROLES_KEY } from '../auth/decorators/platform-roles.decorator';
 import { IS_PUBLIC_KEY } from '../auth/decorators/public.decorator';
 import { TENANT_CONTEXT_REQUIRED_KEY } from '../tenants/decorators/tenant-context-required.decorator';
-import { TENANT_ROLES_KEY } from '../tenants/decorators/tenant-roles.decorator';
 import { CreateWebVoiceSessionDto } from './dto/create-web-voice-session.dto';
 import { WebVoiceChannelsController } from './web-voice-channels.controller';
 import { WebVoiceSessionController } from './web-voice-session.controller';
@@ -26,35 +26,20 @@ describe('Web voice controller security boundaries', () => {
     ).toBe(true);
   });
 
-  it('allows receptionist reads but reserves writes for owner/admin', () => {
-    const read = Reflect.getMetadata(
-      TENANT_ROLES_KEY,
-      WebVoiceChannelsController.prototype.list,
-    ) as TenantRole[];
-    const write = Reflect.getMetadata(
-      TENANT_ROLES_KEY,
-      WebVoiceChannelsController.prototype.create,
-    ) as TenantRole[];
-    expect(read).toEqual(
-      expect.arrayContaining([
-        TenantRole.CLINIC_OWNER,
-        TenantRole.CLINIC_ADMIN,
-        TenantRole.RECEPTIONIST,
-      ]),
-    );
-    expect(write).toEqual([TenantRole.CLINIC_OWNER, TenantRole.CLINIC_ADMIN]);
+  it('reserves every channel management operation for super admins', () => {
     expect(
-      Reflect.getMetadata(
-        TENANT_ROLES_KEY,
-        WebVoiceChannelsController.prototype.update,
-      ),
-    ).toEqual(write);
-    expect(
-      Reflect.getMetadata(
-        TENANT_ROLES_KEY,
-        WebVoiceChannelsController.prototype.status,
-      ),
-    ).toEqual(write);
+      Reflect.getMetadata(PLATFORM_ROLES_KEY, WebVoiceChannelsController),
+    ).toEqual([PlatformRole.SUPER_ADMIN]);
+    for (const method of [
+      'list',
+      'locations',
+      'create',
+      'get',
+      'update',
+      'status',
+    ] as const) {
+      expect(WebVoiceChannelsController.prototype[method]).toBeDefined();
+    }
   });
 
   it('defines no browser-controlled routing or PHI fields', () => {

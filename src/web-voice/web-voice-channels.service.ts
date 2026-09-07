@@ -110,6 +110,40 @@ export class WebVoiceChannelsService {
     };
   }
 
+  async listActiveLocations(
+    context: TrustedTenantContext,
+    query: ListWebVoiceChannelsDto,
+  ) {
+    const where: Prisma.LocationWhereInput = {
+      tenantId: context.tenantId,
+      status: ConfigurationStatus.ACTIVE,
+    };
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.location.findMany({
+        where,
+        select: {
+          id: true,
+          locationNumber: true,
+          name: true,
+          status: true,
+        },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+      this.prisma.location.count({ where }),
+    ]);
+    return {
+      data,
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.ceil(total / query.limit),
+      },
+    };
+  }
+
   async get(context: TrustedTenantContext, id: string) {
     const channel = await this.prisma.webVoiceChannel.findFirst({
       where: { id, tenantId: context.tenantId },

@@ -47,7 +47,9 @@ Browser preflight is deliberately transport-only. For this route, a syntacticall
 
 After origin authorization, the endpoint applies the existing throttler storage at 20 requests/minute per client IP and 60 requests/minute per widget-key fingerprint. The current repository throttler is process-local, so these limits are per application instance; production multi-instance enforcement will require the throttler's storage to be replaced with a shared Redis-backed implementation.
 
-Manage allowed origins through the tenant-authenticated channel update endpoint or another tenant-scoped administration tool. Always identify the intended channel by both tenant and channel identity, submit its complete desired origin list, and never bulk-update all channels.
+Only a CareFlow `SUPER_ADMIN` may use the authenticated channel management endpoints. Management requests require an explicit `X-Tenant-Id`; the server resolves that active tenant as trusted context and every channel and location query remains scoped to it. Clinic owners, clinic administrators, receptionists, and unauthenticated callers cannot list, read, create, update, or change channel status. This restriction does not apply to the public widget bootstrap/runtime endpoint.
+
+Manage allowed origins from `/tenants/<tenant-id>/voice-assistant`. Always identify the intended channel by both tenant and channel identity, submit its complete desired origin list, and never bulk-update all channels.
 
 The production frontend serves `/voice-widget/embed.js` and its same-origin bootstrap proxy. Install it on an authorized customer origin with:
 
@@ -330,7 +332,7 @@ curl -sS -X POST 'https://<backend-public-host>/api/v1/voice/tools/resolve-locat
 
 Confirm `resolved` is true, the name and structured address are correct, and no database UUID or `tenantId` is present. After publishing the updated Agent, the optional browser smoke test is: “What is the address of Qureshi Medical Center?” It should call `resolve_location`, set the current location, and answer from the returned address without an FAQ call.
 
-1. Log in as `CLINIC_OWNER`, select a tenant with `X-Tenant-Id`, and `POST /api/v1/web-voice-channels` with `{ "locationId": null }`.
+1. Log in as `SUPER_ADMIN`, select an active tenant with `X-Tenant-Id`, and `POST /api/v1/web-voice-channels` with `{ "locationId": null }`.
 2. Confirm the response contains a generated `wgt_...` key and default `ACTIVE` status, but no tenant ownership can be supplied in the body.
 3. With exactly one active location, post the key to `/api/v1/voice/web/session`; confirm the public context reports that location as resolved.
 4. Add a second active location and repeat; confirm `locationResolved` is false and `locationName` is null.

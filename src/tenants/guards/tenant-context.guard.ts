@@ -10,6 +10,8 @@ import { Request } from 'express';
 import { PrismaService } from '../../database/prisma.service';
 import { TENANT_CONTEXT_REQUIRED_KEY } from '../decorators/tenant-context-required.decorator';
 import { TENANT_ROLES_KEY } from '../decorators/tenant-roles.decorator';
+import { PLATFORM_ROLES_KEY } from '../../auth/decorators/platform-roles.decorator';
+import { PlatformRole, TenantRole } from '@prisma/client';
 @Injectable()
 export class TenantContextGuard implements CanActivate {
   constructor(
@@ -28,6 +30,27 @@ export class TenantContextGuard implements CanActivate {
     const value = request.headers['x-tenant-id'];
     const tenantId = Array.isArray(value) ? value[0] : value;
     if (!tenantId) throw new BadRequestException('No clinic selected.');
+    const platformRoles = this.reflector.getAllAndOverride<PlatformRole[]>(
+      PLATFORM_ROLES_KEY,
+      targets,
+    );
+    if (
+      request.user?.platformRole === PlatformRole.SUPER_ADMIN &&
+      platformRoles?.includes(PlatformRole.SUPER_ADMIN)
+    ) {
+      const tenant = await this.prisma.tenant.findFirst({
+        where: { id: tenantId, status: 'ACTIVE' },
+        select: { id: true, slug: true },
+      });
+      if (!tenant) throw new ForbiddenException('Clinic access unavailable.');
+      request.tenantContext = {
+        tenantId: tenant.id,
+        tenantSlug: tenant.slug,
+        tenantRole: TenantRole.CLINIC_OWNER,
+        membershipId: 'platform-super-admin',
+      };
+      return true;
+    }
     const membership = await this.prisma.tenantMembership.findFirst({
       where: {
         tenantId,

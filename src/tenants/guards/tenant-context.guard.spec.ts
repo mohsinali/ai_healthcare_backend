@@ -6,6 +6,7 @@ describe('TenantContextGuard', () => {
   const reflector = { getAllAndOverride: jest.fn() } as unknown as Reflector;
   const prisma = {
     tenantMembership: { findFirst: jest.fn() },
+    tenant: { findFirst: jest.fn() },
   } as unknown as PrismaService;
   const request = {
     headers: { 'x-tenant-id': 'tenant-a' },
@@ -55,5 +56,25 @@ describe('TenantContextGuard', () => {
     await expect(
       new TenantContextGuard(reflector, prisma).canActivate(context),
     ).rejects.toThrow(ForbiddenException);
+  });
+  it('allows a super admin explicit context only on a super-admin route', async () => {
+    request.user = {
+      userId: 'admin-a',
+      platformRole: 'SUPER_ADMIN',
+    } as typeof request.user;
+    (reflector.getAllAndOverride as jest.Mock)
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(['SUPER_ADMIN']);
+    (prisma.tenant.findFirst as jest.Mock).mockResolvedValue({
+      id: 'tenant-a',
+      slug: 'clinic-a',
+    });
+    await expect(
+      new TenantContextGuard(reflector, prisma).canActivate(context),
+    ).resolves.toBe(true);
+    expect(request).toHaveProperty(
+      'tenantContext',
+      expect.objectContaining({ tenantId: 'tenant-a' }),
+    );
   });
 });
