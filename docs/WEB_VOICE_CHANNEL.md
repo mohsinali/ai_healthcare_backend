@@ -33,6 +33,11 @@ Manual ElevenLabs dashboard configuration and live testing remain pending while 
 
 `WebVoiceChannel` belongs to one tenant and optionally one same-tenant location. It has an immutable, globally unique `publicWidgetKey`, optional server-managed `agentId`, an allowed-origin list, `ACTIVE`/`INACTIVE` status, and timestamps. Keys are generated with 32 cryptographically secure random bytes encoded as `wgt_<base64url>`; they are opaque and are not derived from tenant data. Routine lifecycle changes use status rather than deletion. Key rotation is deliberately deferred because replacing a key requires updating the clinic website.
 
+New tenants receive one automatically provisioned channel with no location, no
+origins, and `INACTIVE` status. See [Tenant provisioning](./TENANT_PROVISIONING.md)
+for atomicity, repair, readiness, and onboarding details. Enabling a channel
+requires a real location and at least one exact allowed origin.
+
 An allowed origin is exactly `scheme://hostname[:port]`, using only HTTP or HTTPS. Paths, queries, fragments, credentials, wildcards, subdomain matching, and suffix matching are rejected. Values are canonicalized (including hostname casing and default ports), deduplicated, sorted, and compared exactly. Configure every production origin explicitly. An empty list authorizes no external embedding.
 
 The public widget key identifies a channel but is not authorization: it can appear in public page source. External bootstrap requires and checks the browser `Origin` against this policy before creating a session. CORS controls which browser responses may be read; it does not replace server-side origin authorization and must not be treated as one. The existing internal CareFlow `/voice/web/session` test flow is unchanged and does not enforce this list.

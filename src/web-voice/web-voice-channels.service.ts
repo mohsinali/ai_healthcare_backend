@@ -1,8 +1,8 @@
-import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import {
   ConfigurationStatus,
@@ -18,6 +18,7 @@ import {
   UpdateWebVoiceChannelDto,
 } from './dto/web-voice-channel.dto';
 import { normalizeWebOrigins } from './web-origin-policy';
+import { generateWidgetKey } from './widget-key';
 
 const select = {
   id: true,
@@ -77,7 +78,7 @@ export class WebVoiceChannelsService {
       data: {
         ...this.mutableData(dto),
         tenantId: context.tenantId,
-        publicWidgetKey: `wgt_${randomBytes(32).toString('base64url')}`,
+        publicWidgetKey: generateWidgetKey(),
       },
       select,
     });
@@ -172,7 +173,14 @@ export class WebVoiceChannelsService {
     id: string,
     status: WebVoiceChannelStatus,
   ) {
-    await this.get(context, id);
+    const channel = await this.get(context, id);
+    if (
+      status === WebVoiceChannelStatus.ACTIVE &&
+      (!channel.locationId || channel.allowedOrigins.length === 0)
+    )
+      throw new UnprocessableEntityException(
+        'A location and at least one allowed origin are required before enabling this channel.',
+      );
     return this.prisma.webVoiceChannel.update({
       where: { tenantId_id: { tenantId: context.tenantId, id } },
       data: { status },

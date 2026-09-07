@@ -13,6 +13,7 @@ import {
   UpdateMemberDto,
   UpdateTenantDto,
 } from './dto/tenant.dto';
+import { TenantProvisioningService } from './tenant-provisioning.service';
 
 const tenantSelect = {
   id: true,
@@ -36,17 +37,36 @@ const memberInclude = {
 
 @Injectable()
 export class TenantsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly provisioning: TenantProvisioningService,
+  ) {}
   async create(dto: CreateTenantDto) {
-    try {
-      return await this.prisma.tenant.create({
-        data: { name: dto.name.trim(), slug: dto.slug.trim().toLowerCase() },
-        select: tenantSelect,
-      });
-    } catch (error) {
-      this.handleUnique(error, 'A tenant with this slug already exists.');
-      throw error;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const tenant = await tx.tenant.create({
+            data: {
+              name: dto.name.trim(),
+              slug: dto.slug.trim().toLowerCase(),
+            },
+            select: tenantSelect,
+          });
+          const provisioning = await this.provisioning.ensure(tenant.id, tx);
+          return { ...tenant, provisioning };
+        });
+      } catch (error) {
+        if (this.isWidgetKeyConflict(error)) {
+          if (attempt < 2) continue;
+          throw new ConflictException(
+            'Unable to allocate a unique widget key.',
+          );
+        }
+        this.handleUnique(error, 'A tenant with this slug already exists.');
+        throw error;
+      }
     }
+    throw new ConflictException('Unable to allocate a unique widget key.');
   }
   async list(query: ListTenantsDto) {
     const search = query.search?.trim();
@@ -95,7 +115,26 @@ export class TenantsService {
     });
     if (!tenant) throw new NotFoundException('Tenant not found.');
     const { _count, ...data } = tenant;
-    return { ...data, memberCount: _count.memberships };
+    const provisioning = await this.provisioning.status(id);
+    return { ...data, memberCount: _count.memberships, provisioning };
+  }
+  async repairProvisioning(id: string) {
+    await this.requireTenant(id);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction((tx) =>
+          this.provisioning.ensure(id, tx),
+        );
+      } catch (error) {
+        if (this.isProvisioningConflict(error)) {
+          const existing = await this.provisioning.status(id);
+          if (existing) return existing;
+        }
+        if (this.isWidgetKeyConflict(error) && attempt < 2) continue;
+        throw error;
+      }
+    }
+    throw new ConflictException('Unable to allocate a unique widget key.');
   }
   async update(id: string, dto: UpdateTenantDto) {
     await this.requireTenant(id);
@@ -193,5 +232,23 @@ export class TenantsService {
       error.code === 'P2002'
     )
       throw new ConflictException(message);
+  }
+  private isWidgetKeyConflict(error: unknown): boolean {
+    if (
+      !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+      error.code !== 'P2002'
+    )
+      return false;
+    const target = error.meta?.target;
+    return Array.isArray(target) && target.includes('publicWidgetKey');
+  }
+  private isProvisioningConflict(error: unknown): boolean {
+    if (
+      !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+      error.code !== 'P2002'
+    )
+      return false;
+    const target = error.meta?.target;
+    return Array.isArray(target) && target.includes('provisioningKey');
   }
 }

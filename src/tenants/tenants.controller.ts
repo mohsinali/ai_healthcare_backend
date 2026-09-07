@@ -41,6 +41,13 @@ export class TenantsController {
   get(@Param('tenantId') id: string) {
     return this.tenants.get(id);
   }
+  @Post(':tenantId/provisioning')
+  @ApiOperation({
+    summary: 'Idempotently repair tenant baseline provisioning (SUPER_ADMIN)',
+  })
+  repairProvisioning(@Param('tenantId') id: string) {
+    return this.tenants.repairProvisioning(id);
+  }
   @Patch(':tenantId')
   @ApiOperation({ summary: 'Update a tenant (SUPER_ADMIN)' })
   update(@Param('tenantId') id: string, @Body() dto: UpdateTenantDto) {

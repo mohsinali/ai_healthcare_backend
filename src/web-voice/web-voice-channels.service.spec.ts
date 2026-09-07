@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { ConfigurationStatus, WebVoiceChannelStatus } from '@prisma/client';
 import { WebVoiceChannelsService } from './web-voice-channels.service';
 
@@ -136,5 +140,24 @@ describe('WebVoiceChannelsService', () => {
     expect(update.mock.calls[0][0].where).toEqual({
       tenantId_id: { tenantId, id: 'channel-a' },
     });
+  });
+
+  it('prevents activation until location and origins are configured', async () => {
+    const update = jest.fn();
+    const service = new WebVoiceChannelsService({
+      webVoiceChannel: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'channel-a',
+          locationId: null,
+          allowedOrigins: [],
+          status: WebVoiceChannelStatus.INACTIVE,
+        }),
+        update,
+      },
+    } as never);
+    await expect(
+      service.status(context, 'channel-a', WebVoiceChannelStatus.ACTIVE),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    expect(update).not.toHaveBeenCalled();
   });
 });

@@ -263,6 +263,7 @@ model WebVoiceChannel {
   tenantId        String                @db.Uuid
   locationId      String?               @db.Uuid
   publicWidgetKey String                @unique
+  provisioningKey String?
   agentId         String?
   allowedOrigins  String[]              @default([])
   status          WebVoiceChannelStatus @default(ACTIVE)
@@ -272,6 +273,7 @@ model WebVoiceChannel {
   location        Location?             @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: Restrict)
 
   @@unique([tenantId, id])
+  @@unique([tenantId, provisioningKey])
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([tenantId, locationId])
