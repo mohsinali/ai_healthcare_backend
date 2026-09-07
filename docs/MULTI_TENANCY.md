@@ -35,3 +35,28 @@ npm run users:create
 Then sign in as the super admin, create Tenant A and Tenant B, and assign User A as Tenant A Clinic Owner and Tenant B Clinic Admin. Assign User B as Tenant A Receptionist. Sign in as User A and verify both clinics and role changes. Send a tenant-scoped test request with User A's bearer token but an unrelated UUID in `X-Tenant-Id`; it must return `403` without tenant details. Suspend a membership and then a tenant and confirm normal access disappears while the super admin can still manage the tenant.
 
 Invitations, onboarding email, clinic configuration, healthcare domain models, billing, analytics, RLS, SSO, and MFA are intentionally deferred.
+# Member account management
+
+CareFlow has one global user account per normalized email address and separate,
+tenant-specific memberships. Emails are trimmed and lowercased, with database
+constraints preventing case variants. A person may belong to multiple tenants
+and may hold a different clinic role in each one.
+
+The Super Admin tenant-details Members tab uses an exact-email create-or-assign
+operation. It is not a global user directory and provides no partial search,
+autocomplete, profile lookup, or information about memberships in other
+tenants. A new email requires first name, last name, and a policy-compliant
+temporary password; the server hashes that password and creates the user and
+selected-tenant membership atomically. CareFlow does not currently force a
+password change on first login.
+
+For a registered email, the server returns only a neutral confirmation-required
+state. Explicit confirmation re-resolves the normalized email and creates only
+the selected-tenant membership. Supplied name or temporary-password values are
+discarded and never alter the existing account. `SUPER_ADMIN` is a platform
+role and cannot be assigned here; allowed membership roles are `CLINIC_OWNER`,
+`CLINIC_ADMIN`, and `RECEPTIONIST`.
+
+These operations are Super Admin only, take tenant identity from the route, and
+return no unrelated tenant data. Tenant-facing invitations and member
+administration by Clinic Owners or Clinic Admins are explicitly deferred.

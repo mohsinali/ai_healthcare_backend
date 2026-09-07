@@ -1,13 +1,17 @@
 import {
   ConflictException,
+  BadRequestException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { MembershipStatus, Prisma, TenantRole } from '@prisma/client';
+import { AuthService } from '../auth/auth.service';
+import { normalizeEmail } from '../users/users.service';
 import { PrismaService } from '../database/prisma.service';
 import {
   AddMemberDto,
+  ConfirmExistingMemberDto,
   CreateTenantDto,
   ListTenantsDto,
   UpdateMemberDto,
@@ -40,6 +44,7 @@ export class TenantsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly provisioning: TenantProvisioningService,
+    private readonly auth: AuthService,
   ) {}
   async create(dto: CreateTenantDto) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -157,18 +162,80 @@ export class TenantsService {
   }
   async addMember(tenantId: string, dto: AddMemberDto) {
     await this.requireTenant(tenantId);
-    const user = await this.prisma.user.findUnique({
-      where: { id: dto.userId },
+    const email = normalizeEmail(dto.email);
+    const existing = await this.prisma.user.findUnique({
+      where: { email },
       select: { id: true },
     });
-    if (!user) throw new NotFoundException('User not found.');
+    if (existing) {
+      const membership = await this.prisma.tenantMembership.findUnique({
+        where: { tenantId_userId: { tenantId, userId: existing.id } },
+        select: { id: true },
+      });
+      if (membership)
+        throw new ConflictException(
+          'This account is already a member of this tenant.',
+        );
+      return {
+        state: 'confirmation_required' as const,
+        message:
+          'This email belongs to an existing CareFlow account. Confirm that you want to add the account to this tenant. The account’s profile and password will not be changed.',
+      };
+    }
+    if (!dto.firstName?.trim() || !dto.lastName?.trim())
+      throw new BadRequestException(
+        'First name and last name are required for a new account.',
+      );
+    if (!dto.temporaryPassword)
+      throw new BadRequestException(
+        'Temporary password is required for a new account.',
+      );
+    const passwordHash = await this.auth.hashPassword(dto.temporaryPassword);
+    try {
+      const member = await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email,
+            firstName: dto.firstName!.trim(),
+            lastName: dto.lastName!.trim(),
+            passwordHash,
+          },
+          select: { id: true },
+        });
+        return tx.tenantMembership.create({
+          data: { tenantId, userId: user.id, role: dto.role },
+          include: memberInclude,
+        });
+      });
+      return { state: 'created' as const, member };
+    } catch (error) {
+      this.handleUnique(
+        error,
+        'This email was registered concurrently. Submit again to confirm adding the existing account.',
+      );
+      throw error;
+    }
+  }
+  async confirmExistingMember(tenantId: string, dto: ConfirmExistingMemberDto) {
+    await this.requireTenant(tenantId);
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizeEmail(dto.email) },
+      select: { id: true },
+    });
+    if (!user)
+      throw new ConflictException(
+        'This account no longer exists. Submit the create-member form again.',
+      );
     try {
       return await this.prisma.tenantMembership.create({
-        data: { tenantId, userId: dto.userId, role: dto.role },
+        data: { tenantId, userId: user.id, role: dto.role },
         include: memberInclude,
       });
     } catch (error) {
-      this.handleUnique(error, 'This user is already a member of the tenant.');
+      this.handleUnique(
+        error,
+        'This account is already a member of this tenant.',
+      );
       throw error;
     }
   }

@@ -3,6 +3,7 @@ import { MembershipStatus, TenantRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { TenantsService } from './tenants.service';
 import { TenantProvisioningService } from './tenant-provisioning.service';
+import { AuthService } from '../auth/auth.service';
 
 /* Prisma transaction callbacks are intentionally represented by Jest mocks. */
 /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/unbound-method, @typescript-eslint/require-await */
@@ -19,6 +20,7 @@ describe('TenantsService', () => {
     ensure: jest.fn(),
     status: jest.fn(),
   } as unknown as TenantProvisioningService;
+  const auth = { hashPassword: jest.fn() } as unknown as AuthService;
   beforeEach(() => jest.clearAllMocks());
   it('creates and provisions a tenant in one transaction', async () => {
     const tx = {
@@ -42,6 +44,7 @@ describe('TenantsService', () => {
     const result = await new TenantsService(
       transactionalPrisma,
       provisioning,
+      auth,
     ).create({ name: ' Clinic ', slug: 'clinic' });
 
     expect(tx.tenant.create).toHaveBeenCalledWith(
@@ -68,7 +71,7 @@ describe('TenantsService', () => {
     );
 
     await expect(
-      new TenantsService(transactionalPrisma, provisioning).create({
+      new TenantsService(transactionalPrisma, provisioning, auth).create({
         name: 'Clinic',
         slug: 'clinic',
       }),
@@ -83,7 +86,7 @@ describe('TenantsService', () => {
     });
     (prisma.tenantMembership.count as jest.Mock).mockResolvedValue(0);
     await expect(
-      new TenantsService(prisma, provisioning).updateMember(
+      new TenantsService(prisma, provisioning, auth).updateMember(
         'tenant',
         'member',
         {
@@ -106,7 +109,7 @@ describe('TenantsService', () => {
       role: TenantRole.CLINIC_ADMIN,
     });
     await expect(
-      new TenantsService(prisma, provisioning).updateMember(
+      new TenantsService(prisma, provisioning, auth).updateMember(
         'tenant',
         'member',
         {

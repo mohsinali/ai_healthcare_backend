@@ -13,5 +13,7 @@ describe('TenantsController authorization', () => {
     expect(TenantsController.prototype.create).toBeDefined();
     expect(TenantsController.prototype.get).toBeDefined();
     expect(TenantsController.prototype.repairProvisioning).toBeDefined();
+    expect(TenantsController.prototype.addMember).toBeDefined();
+    expect(TenantsController.prototype.confirmExistingMember).toBeDefined();
   });
 });

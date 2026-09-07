@@ -9,10 +9,12 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { PlatformRole } from '@prisma/client';
 import { PlatformRoles } from '../auth/decorators/platform-roles.decorator';
 import {
   AddMemberDto,
+  ConfirmExistingMemberDto,
   CreateTenantDto,
   ListTenantsDto,
   UpdateMemberDto,
@@ -59,9 +61,24 @@ export class TenantsController {
     return this.tenants.listMembers(id);
   }
   @Post(':tenantId/members')
-  @ApiOperation({ summary: 'Add an existing user to a tenant (SUPER_ADMIN)' })
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'Create a user and membership or require confirmation (SUPER_ADMIN)',
+  })
   addMember(@Param('tenantId') id: string, @Body() dto: AddMemberDto) {
     return this.tenants.addMember(id, dto);
+  }
+  @Post(':tenantId/members/confirm-existing')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Confirm adding an existing account to a tenant (SUPER_ADMIN)',
+  })
+  confirmExistingMember(
+    @Param('tenantId') id: string,
+    @Body() dto: ConfirmExistingMemberDto,
+  ) {
+    return this.tenants.confirmExistingMember(id, dto);
   }
   @Patch(':tenantId/members/:membershipId')
   @ApiOperation({ summary: 'Update a membership (SUPER_ADMIN)' })

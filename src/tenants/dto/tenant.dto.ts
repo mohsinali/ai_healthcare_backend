@@ -3,10 +3,10 @@ import { MembershipStatus, TenantRole, TenantStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsEnum,
+  IsEmail,
   IsInt,
   IsOptional,
   IsString,
-  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -50,16 +50,38 @@ export class ListTenantsDto {
     'createdAt:desc';
 }
 export class AddMemberDto {
-  @IsUUID() userId!: string;
+  @ApiProperty({ example: 'member@example.com' })
+  @IsEmail()
+  @MaxLength(254)
+  email!: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(80)
+  firstName?: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(80)
+  lastName?: string;
+  @ApiPropertyOptional({ minLength: 12 })
+  @IsOptional()
+  @IsString()
+  @MinLength(12)
+  @MaxLength(200)
+  temporaryPassword?: string;
+  @IsEnum(TenantRole) role!: TenantRole;
+}
+export class ConfirmExistingMemberDto {
+  @ApiProperty({ example: 'member@example.com' })
+  @IsEmail()
+  @MaxLength(254)
+  email!: string;
   @IsEnum(TenantRole) role!: TenantRole;
 }
 export class UpdateMemberDto {
   @IsOptional() @IsEnum(TenantRole) role?: TenantRole;
   @IsOptional() @IsEnum(MembershipStatus) status?: MembershipStatus;
-}
-export class UserSearchDto {
-  @IsString()
-  @MinLength(2)
-  @MaxLength(100)
-  query!: string;
 }
